@@ -1177,26 +1177,26 @@ function drawBoardColumn(title, list, cx, mode) {
   ctx.fillStyle = 'rgba(20,32,66,0.55)';
   ctx.strokeStyle = 'rgba(120,180,255,0.25)';
   ctx.lineWidth = 1.5;
-  ctx.fillRect(cx - 170, 152, 340, 320);
-  ctx.strokeRect(cx - 170, 152, 340, 320);
+  ctx.fillRect(cx - 170, 178, 340, 320);
+  ctx.strokeRect(cx - 170, 178, 340, 320);
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   ctx.font = 'bold 22px "Microsoft YaHei"';
   ctx.fillStyle = '#ffd76a';
-  ctx.fillText(title, cx, 180);
+  ctx.fillText(title, cx, 206);
   ctx.strokeStyle = 'rgba(255,215,106,0.35)';
   ctx.lineWidth = 1;
-  ctx.beginPath(); ctx.moveTo(cx - 150, 202); ctx.lineTo(cx + 150, 202); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(cx - 150, 228); ctx.lineTo(cx + 150, 228); ctx.stroke();
   if (list.length === 0) {
     ctx.font = '15px "Microsoft YaHei"';
     ctx.fillStyle = '#8fb6d9';
-    ctx.fillText('暂无记录，快去挑战吧！', cx, 300);
+    ctx.fillText('暂无记录，快去挑战吧！', cx, 326);
     return;
   }
   const colors = ['#ffd76a', '#cfe8ff', '#ffb08a', '#8fb6d9', '#7a93b5'];
   ctx.textAlign = 'left';
   for (let i = 0; i < Math.min(5, list.length); i++) {
     const item = list[i];
-    const y = 237 + i * 42;
+    const y = 263 + i * 42;
     ctx.font = 'bold 18px "Microsoft YaHei"';
     ctx.fillStyle = colors[i];
     ctx.fillText((i + 1) + '.', cx - 145, y);
@@ -1259,18 +1259,18 @@ function drawGlobalBoard() {
   ctx.textBaseline = 'middle';
   ctx.font = 'bold 14px "Microsoft YaHei"';
   ctx.fillStyle = '#9ad7ff';
-  ctx.fillText('排名', 210, 190);
-  ctx.fillText('昵称', 330, 190);
+  ctx.fillText('排名', 210, 218);
+  ctx.fillText('昵称', 330, 218);
   ctx.textAlign = 'right';
-  ctx.fillText('得分', 750, 190);
+  ctx.fillText('得分', 750, 218);
   ctx.strokeStyle = 'rgba(255,215,106,0.35)';
   ctx.lineWidth = 1;
-  ctx.beginPath(); ctx.moveTo(190, 205); ctx.lineTo(770, 205); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(190, 233); ctx.lineTo(770, 233); ctx.stroke();
   const myIdx = globalRows.findIndex(function (r) { return r.nickname === playerName; });
   const showN = Math.min(10, globalRows.length);
   for (let i = 0; i < showN; i++) {
     const r = globalRows[i];
-    const y = 232 + i * 42;
+    const y = 260 + i * 38;
     const mine = (i === myIdx);
     ctx.textAlign = 'left';
     ctx.font = 'bold 18px "Microsoft YaHei"';
@@ -1298,8 +1298,8 @@ function drawGlobalBoard() {
   }
 }
 function drawPersonalBoard() {
-  drawBoardColumn('个人分数排行', scoreBoard, 240, 1);
-  drawBoardColumn('个人通关时间排行', timeBoard, 720, 2);
+  drawBoardColumn('分数排行', scoreBoard, 240, 1);
+  drawBoardColumn('通关时间排行', timeBoard, 720, 2);
 }
 function drawBoard() {
   ctx.fillStyle = 'rgba(3,5,15,0.72)';
