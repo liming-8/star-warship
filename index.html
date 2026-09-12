@@ -1203,58 +1203,243 @@ function hitCornerButton(left, p) {
 }
 
 /* ==================== 游戏说明 ==================== */
-function drawHelp() {
-  ctx.fillStyle = 'rgba(3,5,15,0.72)';
-  ctx.fillRect(0, 0, W, H);
+function drawHelpPanelBox(x, y, w, h, title) {
+  ctx.fillStyle = 'rgba(15,25,50,0.78)';
+  ctx.strokeStyle = 'rgba(90,140,220,0.35)';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  if (ctx.roundRect) ctx.roundRect(x, y, w, h, 10); else ctx.rect(x, y, w, h);
+  ctx.fill(); ctx.stroke();
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.shadowColor = '#ffd76a'; ctx.shadowBlur = 24;
-  ctx.font = 'bold 40px "Microsoft YaHei"';
-  ctx.fillStyle = '#ffe9a8';
-  ctx.fillText('游 戏 说 明', W / 2, 46);
+  ctx.font = 'bold 15px "Microsoft YaHei"';
+  ctx.fillStyle = '#7ef0ff';
+  ctx.fillText(title, x + w / 2, y + 21);
+  ctx.strokeStyle = 'rgba(126,240,255,0.25)';
+  ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(x + 12, y + 40); ctx.lineTo(x + w - 12, y + 40); ctx.stroke();
+}
+function drawKeycap(x, y, w, h, label, hl) {
+  ctx.fillStyle = 'rgba(45,78,130,0.85)';
+  ctx.strokeStyle = hl ? '#ffd76a' : '#7fd4ff';
+  ctx.lineWidth = 1.2;
+  ctx.beginPath();
+  if (ctx.roundRect) ctx.roundRect(x, y, w, h, 5); else ctx.rect(x, y, w, h);
+  ctx.fill(); ctx.stroke();
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.font = 'bold 13px "Microsoft YaHei"';
+  ctx.fillStyle = '#eaf7ff';
+  ctx.fillText(label, x + w / 2, y + h / 2 + 1);
+}
+function drawHelp() {
+  ctx.fillStyle = 'rgba(3,5,15,0.78)';
+  ctx.fillRect(0, 0, W, H);
+  ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+  // 左上标题 + 副标题
+  ctx.shadowColor = '#4ec2ff'; ctx.shadowBlur = 16;
+  ctx.font = 'bold 26px "Microsoft YaHei"';
+  ctx.fillStyle = '#dff6ff';
+  ctx.fillText('游戏说明', 45, 32);
   ctx.shadowBlur = 0;
+  ctx.font = '12px "Microsoft YaHei"';
+  ctx.fillStyle = '#8fb6d9';
+  ctx.fillText('STAR WARSHIP · 战术终端', 45, 55);
+  // 右上返回提示
+  ctx.textAlign = 'right';
   ctx.font = '13px "Microsoft YaHei"';
   ctx.fillStyle = '#9ad7ff';
-  ctx.fillText('按 ESC / T / 点击 返回', W / 2, 80);
-  drawHelpPanel('操作按键', [
-    '移动：W A S D / 方向键',
-    '　　　或移动鼠标直接控制',
-    '射击：空格 / 鼠标左键',
-    '　　　（按住可连发）',
-    '导弹：X / 鼠标右键',
-    '　　　（自动追踪 + 范围爆炸）',
-    '暂停：P　　　静音：M',
-    '排行榜：T（游戏中按 T 暂停打开）',
-    '修改昵称：N（主菜单）',
-  ], 240);
-  drawHelpPanel('游戏内容', [
-    '敌人：侦察舰 / 护卫舰',
-    '　　　战列舰 / 星际母舰',
-    'Boss：每 5 波出现一艘',
-    '道具：W 武器升级（最高4级）',
-    '　　　M 导弹补给 · S 护盾',
-    '　　　H 生命 +1',
-    '通关：通过第 10 波',
-    '　　　通关记录最快用时',
-    '成绩自动上传全体排行榜',
-  ], 720);
-}
-function drawHelpPanel(title, lines, cx) {
-  ctx.fillStyle = 'rgba(20,32,66,0.55)';
-  ctx.strokeStyle = 'rgba(120,180,255,0.25)';
-  ctx.lineWidth = 1.5;
-  ctx.fillRect(cx - 170, 110, 340, 470);
-  ctx.strokeRect(cx - 170, 110, 340, 470);
-  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.font = 'bold 22px "Microsoft YaHei"';
-  ctx.fillStyle = '#ffd76a';
-  ctx.fillText(title, cx, 142);
-  ctx.strokeStyle = 'rgba(255,215,106,0.35)';
-  ctx.lineWidth = 1;
-  ctx.beginPath(); ctx.moveTo(cx - 150, 164); ctx.lineTo(cx + 150, 164); ctx.stroke();
-  ctx.font = '14px "Microsoft YaHei"';
-  ctx.fillStyle = '#cfe8ff';
+  ctx.fillText('ESC / T / 点击 返回主菜单', 915, 32);
   ctx.textAlign = 'left';
-  lines.forEach((l, i) => ctx.fillText(l, cx - 150, 192 + i * 31));
+  // 三个面板
+  drawHelpPanelBox(30, 72, 280, 400, '操作 · 键盘');
+  drawHelpPanelBox(330, 72, 280, 400, '操作 · 鼠标');
+  drawHelpPanelBox(630, 72, 300, 400, '游戏内容');
+  /* ---------------- 键盘面板 ---------------- */
+  ctx.font = 'bold 13px "Microsoft YaHei"';
+  ctx.fillStyle = '#ffd76a';
+  ctx.fillText('移动', 45, 130);
+  drawKeycap(92, 118, 30, 26, 'W');
+  drawKeycap(62, 148, 30, 26, 'A');
+  drawKeycap(96, 148, 30, 26, 'S');
+  drawKeycap(130, 148, 30, 26, 'D');
+  ctx.font = '11px "Microsoft YaHei"';
+  ctx.fillStyle = '#9ad7ff';
+  ctx.fillText('或 ↑←↓→', 174, 130);
+  ctx.fillText('也可移动鼠标直接驾驶', 174, 152);
+  ctx.font = 'bold 13px "Microsoft YaHei"';
+  ctx.fillStyle = '#ffd76a';
+  ctx.fillText('射击', 45, 200);
+  drawKeycap(92, 188, 62, 26, '空格');
+  ctx.font = '11px "Microsoft YaHei"';
+  ctx.fillStyle = '#9ad7ff';
+  ctx.fillText('按住可连发 · 等同鼠标左键', 166, 201);
+  ctx.font = 'bold 13px "Microsoft YaHei"';
+  ctx.fillStyle = '#ffd76a';
+  ctx.fillText('导弹', 45, 252);
+  drawKeycap(92, 240, 30, 26, 'X');
+  ctx.font = '11px "Microsoft YaHei"';
+  ctx.fillStyle = '#9ad7ff';
+  ctx.fillText('自动追踪+范围爆炸 · 等同右键', 134, 253);
+  ctx.font = 'bold 13px "Microsoft YaHei"';
+  ctx.fillStyle = '#ffd76a';
+  ctx.fillText('系统', 45, 304);
+  const sysRows = [['P', '暂停'], ['M', '静音'], ['T', '排行榜（游戏中）'], ['N', '修改昵称（主菜单）']];
+  sysRows.forEach((s, i) => {
+    const yy = 310 + i * 32;
+    drawKeycap(62, yy, 30, 24, s[0]);
+    ctx.font = '12px "Microsoft YaHei"';
+    ctx.fillStyle = '#cfe8ff';
+    ctx.fillText(s[1], 100, yy + 12);
+  });
+  /* ---------------- 鼠标面板 ---------------- */
+  ctx.textAlign = 'center';
+  ctx.font = 'bold 14px "Microsoft YaHei"';
+  ctx.fillStyle = 'rgba(35,62,110,0.85)';
+  ctx.strokeStyle = '#7fd4ff';
+  ctx.lineWidth = 1.3;
+  ctx.beginPath();
+  if (ctx.roundRect) ctx.roundRect(360, 128, 95, 34, 8); else ctx.rect(360, 128, 95, 34);
+  ctx.fill(); ctx.stroke();
+  ctx.fillStyle = '#eaf7ff';
+  ctx.fillText('左键 · 射击', 407, 146);
+  ctx.fillStyle = 'rgba(60,45,40,0.85)';
+  ctx.strokeStyle = '#ff9d7a';
+  ctx.beginPath();
+  if (ctx.roundRect) ctx.roundRect(465, 128, 95, 34, 8); else ctx.rect(465, 128, 95, 34);
+  ctx.fill(); ctx.stroke();
+  ctx.fillStyle = '#ffd9c8';
+  ctx.fillText('右键 · 导弹', 512, 146);
+  // 鼠标示意图
+  ctx.fillStyle = 'rgba(70,100,160,0.9)';
+  ctx.strokeStyle = 'rgba(140,190,255,0.8)';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  if (ctx.roundRect) ctx.roundRect(436, 196, 68, 128, 30); else ctx.rect(436, 196, 68, 128);
+  ctx.fill(); ctx.stroke();
+  ctx.fillStyle = 'rgba(35,60,110,0.9)';
+  ctx.beginPath();
+  if (ctx.roundRect) ctx.roundRect(441, 200, 27, 38, 6); else ctx.rect(441, 200, 27, 38);
+  ctx.fill();
+  ctx.beginPath();
+  if (ctx.roundRect) ctx.roundRect(472, 200, 27, 38, 6); else ctx.rect(472, 200, 27, 38);
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(140,190,255,0.9)';
+  ctx.beginPath();
+  if (ctx.roundRect) ctx.roundRect(468, 204, 5, 22, 3); else ctx.rect(468, 204, 5, 22);
+  ctx.stroke();
+  ctx.font = '10px "Microsoft YaHei"';
+  ctx.fillStyle = '#7fd4ff';
+  ctx.fillText('左键', 452, 186);
+  ctx.fillStyle = '#ff9d7a';
+  ctx.fillText('右键', 492, 186);
+  ctx.font = '12px "Microsoft YaHei"';
+  ctx.fillStyle = '#cfe8ff';
+  ctx.fillText('移动鼠标 = 直接驾驶战舰', 470, 342);
+  ctx.font = '11px "Microsoft YaHei"';
+  ctx.fillStyle = '#8fb6d9';
+  ctx.fillText('键盘与鼠标可同时使用', 470, 362);
+  ctx.strokeStyle = 'rgba(120,180,255,0.25)';
+  ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(345, 380); ctx.lineTo(595, 380); ctx.stroke();
+  ctx.font = '11px "Microsoft YaHei"';
+  ctx.fillStyle = '#8fb6d9';
+  ctx.fillText('— 战术示意 —', 470, 394);
+  ctx.fillStyle = 'rgba(30,50,95,0.7)';
+  ctx.strokeStyle = 'rgba(255,215,106,0.5)';
+  ctx.lineWidth = 1.2;
+  ctx.beginPath();
+  if (ctx.roundRect) ctx.roundRect(355, 406, 210, 44, 8); else ctx.rect(355, 406, 210, 44);
+  ctx.fill(); ctx.stroke();
+  ctx.font = 'bold 13px "Microsoft YaHei"';
+  ctx.fillStyle = '#ffd76a';
+  ctx.fillText('掉落补给', 460, 420);
+  ctx.font = '10px "Microsoft YaHei"';
+  ctx.fillStyle = '#8fb6d9';
+  ctx.fillText('击毁敌舰随机掉落', 460, 438);
+  /* ---------------- 游戏内容面板 ---------------- */
+  ctx.textAlign = 'left';
+  ctx.font = 'bold 13px "Microsoft YaHei"';
+  ctx.fillStyle = '#ffd76a';
+  ctx.fillText('敌方单位', 650, 118);
+  const enemies = [
+    ['侦察舰', '速度快 · 血量低'],
+    ['护卫舰', '中速 · 火力均衡'],
+    ['战列舰', '高血量 · 弹幕密集'],
+    ['星际母舰', '精英 · 会释放僚机'],
+  ];
+  enemies.forEach((en, i) => {
+    const yy = 144 + i * 26;
+    ctx.font = '13px "Microsoft YaHei"';
+    ctx.fillStyle = '#cfe8ff';
+    ctx.fillText(en[0], 650, yy);
+    ctx.font = '11px "Microsoft YaHei"';
+    ctx.fillStyle = '#8fb6d9';
+    ctx.fillText(en[1], 710, yy);
+  });
+  ctx.font = '12px "Microsoft YaHei"';
+  ctx.fillStyle = '#ff7a6b';
+  ctx.fillText('BOSS 每5波出现一艘', 650, 254);
+  ctx.font = '11px "Microsoft YaHei"';
+  ctx.fillStyle = '#8fb6d9';
+  ctx.fillText('击败后大量掉落补给', 650, 274);
+  ctx.font = 'bold 13px "Microsoft YaHei"';
+  ctx.fillStyle = '#ffd76a';
+  ctx.fillText('补给道具', 650, 302);
+  const items = [
+    ['武器升级', '最高 4 级', 650, 324],
+    ['导弹补给', '补充弹药', 788, 324],
+    ['护盾', '抵挡一次伤害', 650, 378],
+    ['生命 +1', '上限加一', 788, 378],
+  ];
+  items.forEach((it) => {
+    ctx.fillStyle = 'rgba(30,50,95,0.65)';
+    ctx.strokeStyle = 'rgba(120,180,255,0.3)';
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(it[2], it[3], 128, 46, 8); else ctx.rect(it[2], it[3], 128, 46);
+    ctx.fill(); ctx.stroke();
+    ctx.font = '13px "Microsoft YaHei"';
+    ctx.fillStyle = '#eaf7ff';
+    ctx.fillText(it[0], it[2] + 10, it[3] + 16);
+    ctx.font = '10px "Microsoft YaHei"';
+    ctx.fillStyle = '#8fb6d9';
+    ctx.fillText(it[1], it[2] + 10, it[3] + 34);
+  });
+  /* ---------------- 底部信息栏 ---------------- */
+  ctx.fillStyle = 'rgba(15,28,60,0.85)';
+  ctx.strokeStyle = 'rgba(90,140,220,0.4)';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  if (ctx.roundRect) ctx.roundRect(30, 486, 900, 74, 10); else ctx.rect(30, 486, 900, 74);
+  ctx.fill(); ctx.stroke();
+  ctx.font = 'bold 13px "Microsoft YaHei"';
+  ctx.fillStyle = '#ffd76a';
+  ctx.fillText('通关目标', 50, 508);
+  ctx.font = '12px "Microsoft YaHei"';
+  ctx.fillStyle = '#cfe8ff';
+  ctx.fillText('通过第10波 · 挑战最快通关用时 · 成绩自动上传全体排行榜', 50, 531);
+  ctx.font = 'bold 13px "Microsoft YaHei"';
+  ctx.fillStyle = '#ffd76a';
+  ctx.fillText('波次节奏', 585, 508);
+  for (let i = 0; i < 10; i++) {
+    const bx = 585 + i * 34;
+    const isBoss = (i === 4 || i === 9);
+    ctx.fillStyle = isBoss ? 'rgba(120,40,35,0.9)' : 'rgba(30,50,95,0.8)';
+    ctx.strokeStyle = isBoss ? '#ff7a6b' : 'rgba(120,180,255,0.5)';
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(bx, 516, 30, 26, 5); else ctx.rect(bx, 516, 30, 26);
+    ctx.fill(); ctx.stroke();
+    ctx.textAlign = 'center';
+    ctx.font = 'bold 11px "Microsoft YaHei"';
+    ctx.fillStyle = isBoss ? '#ffb3a8' : '#cfe8ff';
+    ctx.fillText(String(i + 1), bx + 15, 529);
+    if (isBoss) {
+      ctx.font = '10px "Microsoft YaHei"';
+      ctx.fillStyle = '#ff7a6b';
+      ctx.fillText('BOSS', bx + 15, 552);
+    }
+  }
+  ctx.textAlign = 'left';
 }
 function drawBoardColumn(title, list, cx, mode) {
   ctx.fillStyle = 'rgba(20,32,66,0.55)';
