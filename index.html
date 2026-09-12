@@ -2,13 +2,13 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>星空战舰</title>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
-html, body { width: 100%; height: 100%; background: #05060f; overflow: hidden; }
+html, body { width: 100%; height: 100%; background: #05060f; overflow: hidden; touch-action: none; overscroll-behavior: none; user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent; }
 body { display: flex; align-items: center; justify-content: center; font-family: "Microsoft YaHei", sans-serif; }
-canvas { display: block; box-shadow: 0 0 80px rgba(60,120,255,.25); }
+canvas { display: block; box-shadow: 0 0 80px rgba(60,120,255,.25); touch-action: none; }
 canvas:focus { outline: none; }
 #nick-overlay { display:none; position:fixed; inset:0; background:rgba(3,5,15,0.9); z-index:99; align-items:center; justify-content:center; font-family:"Microsoft YaHei",sans-serif; }
 .nick-panel { text-align:center; width:440px; max-width:92vw; padding:30px 26px; border:1px solid rgba(127,212,255,.45); border-radius:14px; background:rgba(10,18,40,.95); box-shadow:0 0 60px rgba(60,140,255,.25); }
@@ -35,6 +35,7 @@ canvas:focus { outline: none; }
     <button class="nick-offline" id="nick-offline">离线模式继续</button>
   </div>
 </div>
+<div id="rotate-hint" style="display:none;position:fixed;inset:0;z-index:98;background:#05060f;color:#9ad7ff;font-family:'Microsoft YaHei',sans-serif;align-items:center;justify-content:center;text-align:center;font-size:18px;letter-spacing:2px;">请将手机旋转至横屏游玩<br><span style="font-size:13px;color:#6f94b8;margin-top:10px;display:inline-block;">横屏后自动进入游戏</span></div>
 <script src="config.js"></script>
 <script>
 'use strict';
@@ -45,6 +46,8 @@ const GAME_CONFIG = (typeof window !== 'undefined' && window.GAME_CONFIG) ? wind
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
 const W = 960, H = 640;
+const isTouch = !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches) || ('ontouchstart' in window && navigator.maxTouchPoints > 0) || new URLSearchParams(location.search).has('touch');
+const PFX = isTouch ? 0.55 : 1;   // 移动端粒子数量系数
 
 function resizeCanvas() {
   const sw = window.innerWidth, sh = window.innerHeight;
@@ -52,7 +55,7 @@ function resizeCanvas() {
   canvas.style.width = (W * s) + 'px';
   canvas.style.height = (H * s) + 'px';
   // 按显示尺寸 × 设备像素比渲染，保证高分屏/大窗口下画面清晰
-  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  const dpr = Math.min(isTouch ? 1.5 : 2, window.devicePixelRatio || 1);
   canvas.width = Math.max(1, Math.round(W * s * dpr));
   canvas.height = Math.max(1, Math.round(H * s * dpr));
   ctx.setTransform(canvas.width / W, 0, 0, canvas.height / H, 0, 0);
@@ -107,10 +110,13 @@ window.addEventListener('keydown', (e) => {
 window.addEventListener('keyup', (e) => { keys[e.code] = false; });
 
 canvas.addEventListener('pointermove', (e) => {
+  if (e.pointerType === 'touch') return;   // 触摸统一由 window 层处理
   const p = toLogical(e); mouse.x = p.x; mouse.y = p.y;
   lastMouseMove = time;
 });
 canvas.addEventListener('pointerdown', (e) => {
+  if (e.pointerType === 'touch') return;   // 触摸统一由 window 层处理
+  if (performance.now() - lastTouchTime < 500) return;   // 屏蔽触摸后的兼容鼠标事件
   initAudio();
   const p = toLogical(e); mouse.x = p.x; mouse.y = p.y; lastMouseMove = time;
   if (e.button === 2) { mouse.rdown = true; if (state === 'playing' && !paused && !(e.buttons & 1)) tryFireMissile(); }
@@ -139,8 +145,130 @@ canvas.addEventListener('pointerdown', (e) => {
   }
   else if (state === 'win') { state = 'playing'; nextWave(); }
 });
-window.addEventListener('pointerup', (e) => { if (e.button === 2) mouse.rdown = false; else mouse.down = false; });
+window.addEventListener('pointerup', (e) => {
+  if (e.pointerType === 'touch') { touchPointerUp(e); return; }
+  if (e.button === 2) mouse.rdown = false; else mouse.down = false;
+});
+window.addEventListener('pointercancel', (e) => { if (e.pointerType === 'touch') touchPointerUp(e); });
 canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+
+/* ==================== 移动端触摸操控（不影响桌面） ==================== */
+let lastTouchTime = -1000;
+const JOY_R = 60;
+const JOY = { active: false, id: -1, ox: 0, oy: 0, x: 0, y: 0 };
+let joyVec = { x: 0, y: 0 };
+let touchFire = false, touchFireId = -1, touchMissileId = -1;
+const PB_BTN = { cx: W - 52, cy: 52, r: 24 };          // 暂停/继续
+const MSL_BTN = { cx: W - 85, cy: H - 215, r: 42 };    // 导弹
+const FIRE_BTN = { cx: W - 85, cy: H - 90, r: 50 };    // 射击
+const NICK_BTN = { x: W / 2 - 75, y: 30, w: 150, h: 34 }; // 修改昵称
+function hitCircle(b, p) { return distSq(p.x, p.y, b.cx, b.cy) <= b.r * b.r; }
+function hitRectButton(b, p) { return p.x >= b.x && p.x <= b.x + b.w && p.y >= b.y && p.y <= b.y + b.h; }
+
+function touchPointerDown(e) {
+  initAudio();
+  lastTouchTime = performance.now();
+  if (nickOpen) return;
+  if (window.innerHeight > window.innerWidth) return;   // 竖屏时由旋转提示接管
+  if (e.cancelable) e.preventDefault();
+  const p = toLogical(e);
+  const c = { x: clamp(p.x, 0, W), y: clamp(p.y, 0, H) };
+  if (state === 'help') { state = prevState; if (state === 'playing') paused = prevPaused; return; }
+  if (state === 'menu') {
+    if (hitCornerButton(BTN_LEADER, c)) { prevState = 'menu'; state = 'board'; if (boardTab === 'global') loadGlobalBoard(); return; }
+    if (hitCornerButton(BTN_HELP, c)) { prevState = 'menu'; state = 'help'; return; }
+    if (hitRectButton(NICK_BTN, c)) { openNicknameOverlay('rename'); return; }
+    startGame(); return;
+  }
+  if (state === 'gameover') {
+    if (hitCornerButton(BTN_LEADER, c)) { prevState = 'gameover'; state = 'board'; if (boardTab === 'global') loadGlobalBoard(); return; }
+    if (hitCornerButton(BTN_HELP, c)) { prevState = 'gameover'; state = 'help'; return; }
+    startGame(); return;
+  }
+  if (state === 'win') { state = 'playing'; nextWave(); return; }
+  if (state === 'board') {
+    const y = 128, h = 36, w = 200;
+    if (c.y >= y && c.y <= y + h) {
+      if (Math.abs(c.x - (W / 2 - 100)) <= w / 2) { boardTab = 'global'; loadGlobalBoard(); return; }
+      if (Math.abs(c.x - (W / 2 + 100)) <= w / 2) { boardTab = 'personal'; return; }
+    }
+    state = prevState; if (state === 'playing') paused = prevPaused; return;
+  }
+  if (state === 'playing' && paused) {
+    if (hitCornerButton(BTN_LEADER, c)) { prevPaused = true; prevState = 'playing'; state = 'board'; if (boardTab === 'global') loadGlobalBoard(); return; }
+    if (hitCornerButton(BTN_HELP, c)) { prevPaused = true; prevState = 'playing'; state = 'help'; return; }
+    paused = false; return;
+  }
+  if (state === 'playing') {
+    if (hitCircle(PB_BTN, c)) { paused = true; return; }
+    if (hitCircle(MSL_BTN, c)) { if (touchMissileId < 0) touchMissileId = e.pointerId; tryFireMissile(); return; }
+    if (c.x < W / 2) {
+      if (JOY.id < 0) { JOY.active = true; JOY.id = e.pointerId; JOY.ox = c.x; JOY.oy = c.y; JOY.x = c.x; JOY.y = c.y; joyVec = { x: 0, y: 0 }; }
+    } else {
+      if (touchFireId < 0) touchFireId = e.pointerId;
+      touchFire = true;
+    }
+  }
+}
+function touchPointerMove(e) {
+  if (JOY.active && JOY.id === e.pointerId) {
+    const p = toLogical(e);
+    JOY.x = clamp(p.x, 0, W); JOY.y = clamp(p.y, 0, H);
+    const dx = JOY.x - JOY.ox, dy = JOY.y - JOY.oy;
+    const d = Math.hypot(dx, dy);
+    if (d > JOY_R) { JOY.x = JOY.ox + dx / d * JOY_R; JOY.y = JOY.oy + dy / d * JOY_R; }
+    joyVec = { x: (JOY.x - JOY.ox) / JOY_R, y: (JOY.y - JOY.oy) / JOY_R };
+  }
+}
+function touchPointerUp(e) {
+  if (JOY.active && JOY.id === e.pointerId) { JOY.active = false; JOY.id = -1; joyVec = { x: 0, y: 0 }; }
+  if (touchFireId === e.pointerId) { touchFireId = -1; touchFire = false; }
+  if (touchMissileId === e.pointerId) touchMissileId = -1;
+}
+window.addEventListener('pointerdown', (e) => { if (e.pointerType === 'touch') touchPointerDown(e); });
+window.addEventListener('pointermove', (e) => { if (e.pointerType === 'touch') touchPointerMove(e); });
+
+function drawTouchCircle(b, label, color) {
+  ctx.fillStyle = 'rgba(24,40,80,0.72)';
+  ctx.strokeStyle = color; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.arc(b.cx, b.cy, b.r, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.font = 'bold 15px "Microsoft YaHei"';
+  ctx.fillStyle = '#eaf7ff';
+  ctx.fillText(label, b.cx, b.cy + 1);
+}
+function drawNickButton() {
+  ctx.fillStyle = 'rgba(24,40,80,0.78)';
+  ctx.strokeStyle = '#9ad7ff'; ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  if (ctx.roundRect) ctx.roundRect(NICK_BTN.x, NICK_BTN.y, NICK_BTN.w, NICK_BTN.h, 8); else ctx.rect(NICK_BTN.x, NICK_BTN.y, NICK_BTN.w, NICK_BTN.h);
+  ctx.fill(); ctx.stroke();
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.font = 'bold 14px "Microsoft YaHei"';
+  ctx.fillStyle = '#eaf7ff';
+  ctx.fillText('修改昵称', NICK_BTN.x + NICK_BTN.w / 2, NICK_BTN.y + NICK_BTN.h / 2 + 1);
+}
+function drawTouchUI() {
+  drawTouchCircle(PB_BTN, paused ? '▶' : 'Ⅱ', '#7fd4ff');
+  if (paused) return;
+  drawTouchCircle(FIRE_BTN, '射击', '#7ef0ff');
+  drawTouchCircle(MSL_BTN, '导弹', '#ffb347');
+  if (JOY.active) {
+    ctx.strokeStyle = 'rgba(127,212,255,0.45)'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(JOY.ox, JOY.oy, JOY_R, 0, Math.PI * 2); ctx.stroke();
+    ctx.fillStyle = 'rgba(127,212,255,0.15)';
+    ctx.beginPath(); ctx.arc(JOY.ox, JOY.oy, JOY_R, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = 'rgba(127,212,255,0.6)';
+    ctx.beginPath(); ctx.arc(JOY.x, JOY.y, 22, 0, Math.PI * 2); ctx.fill();
+  }
+}
+const rotateHint = document.getElementById('rotate-hint');
+function updateRotateHint() {
+  const show = isTouch && window.innerHeight > window.innerWidth;
+  if (rotateHint) rotateHint.style.display = show ? 'flex' : 'none';
+}
+window.addEventListener('resize', updateRotateHint);
+updateRotateHint();
 
 /* ==================== 音频 ==================== */
 let audioCtx = null, muted = false;
@@ -230,7 +358,7 @@ function drawBackground() {
 /* ==================== 粒子 ==================== */
 const particles = [];
 function spawnExplosion(x, y, color, n, power) {
-  n = n || 22; power = power || 1;
+  n = Math.max(6, Math.round((n || 22) * PFX)); power = power || 1;
   for (let i = 0; i < n; i++) {
     const a = rand(0, Math.PI * 2), sp = rand(40, 260) * power;
     particles.push({
@@ -249,7 +377,7 @@ function updateParticles(dt) {
     p.life -= dt; p.x += p.vx * dt; p.y += p.vy * dt; p.vx *= 0.98; p.vy *= 0.98;
     if (p.life <= 0) particles.splice(i, 1);
   }
-  if (particles.length > 800) particles.splice(0, particles.length - 800);
+  if (particles.length > (isTouch ? 450 : 800)) particles.splice(0, particles.length - (isTouch ? 450 : 800));
 }
 function drawParticles() {
   for (const p of particles) {
@@ -342,7 +470,8 @@ function updatePlayer(dt) {
   if (keys['ArrowRight'] || keys['KeyD']) dx += 1;
   if (keys['ArrowUp'] || keys['KeyW']) dy -= 1;
   if (keys['ArrowDown'] || keys['KeyS']) dy += 1;
-  const useMouse = (time - lastMouseMove < 2.5) || mouse.down || mouse.rdown;
+  if (isTouch) { dx += joyVec.x; dy += joyVec.y; }
+  const useMouse = (!isTouch) && ((time - lastMouseMove < 2.5) || mouse.down || mouse.rdown);
   if (useMouse) {
     p.x += (mouse.x - p.x) * Math.min(1, dt * 30);
     p.y += (mouse.y - p.y) * Math.min(1, dt * 30);
@@ -354,9 +483,9 @@ function updatePlayer(dt) {
   p.y = clamp(p.y, 40, H - 26);
   p.fireCd -= dt; p.missileCd -= dt; p.invuln -= dt;
 
-  if (Math.random() < 0.7) spawnTrail(p.x, p.y + 16, 'rgba(80,180,255,0.8)', 2.2);
+  if (Math.random() < 0.7 * PFX) spawnTrail(p.x, p.y + 16, 'rgba(80,180,255,0.8)', 2.2);
 
-  if ((keys['Space'] || mouse.down) && p.fireCd <= 0) {
+  if ((keys['Space'] || mouse.down || touchFire) && p.fireCd <= 0) {
     p.fireCd = [0.18, 0.16, 0.14, 0.12][p.weaponLevel - 1];
     fireBullets();
   }
@@ -1087,7 +1216,7 @@ function drawHUD() {
   ctx.textAlign = 'left';
   ctx.font = '12px "Microsoft YaHei"';
   ctx.fillStyle = 'rgba(255,255,255,0.45)';
-  ctx.fillText('P 暂停 · M 静音' + (muted ? '（已静音）' : ''), 14, H - 14);
+  ctx.fillText(isTouch ? '左侧摇杆移动 · 右侧射击 · 导弹按钮' : ('P 暂停 · M 静音' + (muted ? '（已静音）' : '')), 14, H - 14);
   ctx.restore();
 }
 function drawWaveBanner() {
@@ -1119,7 +1248,12 @@ function drawMenu() {
   ctx.fillText('在浩瀚宇宙中，驾驶战舰迎击敌方舰队', W / 2, 215);
   ctx.font = '15px "Microsoft YaHei"';
   ctx.fillStyle = '#cfe8ff';
-  const lines = [
+  const lines = isTouch ? [
+    '移动：左侧拖拽摇杆',
+    '射击：右侧按住射击区（连发）',
+    '导弹：点击导弹按钮（自动追踪）',
+    '暂停：右上角暂停按钮',
+  ] : [
     '移动：W A S D / 方向键 / 鼠标',
     '射击：空格 / 鼠标左键（按住连发）',
     '导弹：X 键 / 鼠标右键（自动追踪）',
@@ -1138,9 +1272,10 @@ function drawMenu() {
   if (Math.sin(time * 3) > -0.3) {
     ctx.font = 'bold 26px "Microsoft YaHei"';
     ctx.fillStyle = '#7ef0ff';
-    ctx.fillText('按 回车 / 点击 开始游戏', W / 2, 560);
+    ctx.fillText(isTouch ? '点击屏幕 开始游戏' : '按 回车 / 点击 开始游戏', W / 2, 560);
   }
   drawCornerButtons();
+  if (isTouch) drawNickButton();
 }
 function drawGameOver() {
   ctx.fillStyle = 'rgba(3,5,15,0.6)';
@@ -1174,7 +1309,7 @@ function drawPause() {
   ctx.fillText('已 暂 停', W / 2, H / 2 - 20);
   ctx.font = '18px "Microsoft YaHei"';
   ctx.fillStyle = '#9ad7ff';
-  ctx.fillText('按 P 继续', W / 2, H / 2 + 30);
+  ctx.fillText(isTouch ? '点击屏幕继续' : '按 P 继续', W / 2, H / 2 + 30);
   drawCornerButtons();
 }
 
@@ -1448,6 +1583,7 @@ function draw() {
   drawFloaters();
   ctx.restore();
   if (state === 'playing' || state === 'gameover') drawHUD();
+  if (isTouch && state === 'playing') drawTouchUI();
   if (waveBanner > 0 && state !== 'board') drawWaveBanner();
   if (state === 'menu') drawMenu();
   else if (state === 'help') drawHelp();
