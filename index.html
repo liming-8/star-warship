@@ -102,7 +102,7 @@ window.addEventListener('keydown', (e) => {
   }
   if (e.code === 'Digit1') { if (state === 'board') { boardTab = 'global'; loadGlobalBoard(); } }
   if (e.code === 'Digit2') { if (state === 'board') boardTab = 'personal'; }
-  if (e.code === 'KeyX' || e.code === 'KeyC') { if (state === 'playing') tryFireMissile(); }
+  if (e.code === 'KeyX') { if (state === 'playing') tryFireMissile(); }
 });
 window.addEventListener('keyup', (e) => { keys[e.code] = false; });
 
@@ -113,7 +113,7 @@ canvas.addEventListener('pointermove', (e) => {
 canvas.addEventListener('pointerdown', (e) => {
   initAudio();
   const p = toLogical(e); mouse.x = p.x; mouse.y = p.y; lastMouseMove = time;
-  if (e.button === 2) { mouse.rdown = true; if (state === 'playing' && !paused) tryFireMissile(); }
+  if (e.button === 2) { mouse.rdown = true; if (state === 'playing' && !paused && !(e.buttons & 1)) tryFireMissile(); }
   else { mouse.down = true; }
   if (state === 'help') { state = prevState; if (state === 'playing') paused = prevPaused; return; }
   if (state === 'menu') {
