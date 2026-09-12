@@ -10,14 +10,14 @@
  *    粘贴执行 supabase-setup.sql 里的建表语句
  * 3. 复制 Project URL（形如 https://xxxx.supabase.co），
  *    粘贴到下面的 SUPABASE_URL
- * 4. 复制 anon public key（项目 → Settings → API），
+ * 4. 复制 Publishable key（或 anon public key），
  *    粘贴到下面的 SUPABASE_ANON_KEY
  * 5. 保存本文件，重新上传部署即可
  *
- * 注意：anon key 仅用于数据库的受限匿名访问，本游戏的表已
+ * 注意：该 key 仅用于数据库的受限匿名访问，本游戏的表已
  * 开启行级安全（RLS），公开可读写排行榜数据，请勿存放敏感信息。
  * ============================================================ */
 window.GAME_CONFIG = {
-  SUPABASE_URL: '',
-  SUPABASE_ANON_KEY: '',
+  SUPABASE_URL: 'https://tdrvwrtxjfpipznpjlde.supabase.co',
+  SUPABASE_ANON_KEY: 'sb_publishable_ic5q0eeijti2tf94TbHEZg_aCuNIwqd',
 };
