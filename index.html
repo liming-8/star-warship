@@ -276,7 +276,7 @@ function drawFloaters() {
 
 /* ==================== 玩家 ==================== */
 const player = {
-  x: W / 2, y: H - 80, r: 16, speed: 340,
+  x: W / 2, y: H - 80, r: 16, speed: 430,
   hp: 3, maxHp: 3, invuln: 0,
   weaponLevel: 1,
   hasMissile: true, missileAmmo: 4, missileCd: 0,
@@ -335,8 +335,8 @@ function updatePlayer(dt) {
   if (keys['ArrowDown'] || keys['KeyS']) dy += 1;
   const useMouse = (time - lastMouseMove < 2.5) || mouse.down || mouse.rdown;
   if (useMouse) {
-    p.x += (mouse.x - p.x) * Math.min(1, dt * 12);
-    p.y += (mouse.y - p.y) * Math.min(1, dt * 12);
+    p.x += (mouse.x - p.x) * Math.min(1, dt * 30);
+    p.y += (mouse.y - p.y) * Math.min(1, dt * 30);
   } else {
     const len = Math.hypot(dx, dy);
     if (len > 0) { p.x += dx / len * p.speed * dt; p.y += dy / len * p.speed * dt; }
