@@ -119,9 +119,7 @@ canvas.addEventListener('pointerdown', (e) => {
   if (state === 'menu') {
     if (hitCornerButton(BTN_LEADER, p)) { prevState = 'menu'; state = 'board'; if (boardTab === 'global') loadGlobalBoard(); return; }
     if (hitCornerButton(BTN_HELP, p)) { prevState = 'menu'; state = 'help'; return; }
-    const bx = W / 2 - 85, by = 545, bw = 170, bh = 46;
-    if (p.x >= bx && p.x <= bx + bw && p.y >= by && p.y <= by + bh) { prevState = 'menu'; state = 'board'; if (boardTab === 'global') loadGlobalBoard(); }
-    else startGame();
+    startGame();
   } else if (state === 'gameover') {
     if (hitCornerButton(BTN_LEADER, p)) { prevState = 'gameover'; state = 'board'; if (boardTab === 'global') loadGlobalBoard(); return; }
     if (hitCornerButton(BTN_HELP, p)) { prevState = 'gameover'; state = 'help'; return; }
@@ -1140,21 +1138,8 @@ function drawMenu() {
   if (Math.sin(time * 3) > -0.3) {
     ctx.font = 'bold 26px "Microsoft YaHei"';
     ctx.fillStyle = '#7ef0ff';
-    ctx.fillText('按 回车 / 点击 开始游戏', W / 2, 515);
+    ctx.fillText('按 回车 / 点击 开始游戏', W / 2, 560);
   }
-  const bx = W / 2 - 85, by = 545, bw = 170, bh = 46;
-  ctx.fillStyle = 'rgba(40,90,160,0.6)';
-  ctx.strokeStyle = '#7fd4ff';
-  ctx.lineWidth = 1.5;
-  ctx.beginPath();
-  if (ctx.roundRect) ctx.roundRect(bx, by, bw, bh, 10); else ctx.rect(bx, by, bw, bh);
-  ctx.fill(); ctx.stroke();
-  ctx.font = 'bold 20px "Microsoft YaHei"';
-  ctx.fillStyle = '#eaf7ff';
-  ctx.fillText('排 行 榜', W / 2, by + bh / 2 + 1);
-  ctx.font = '12px "Microsoft YaHei"';
-  ctx.fillStyle = '#8fb6d9';
-  ctx.fillText('或按 T 键打开', W / 2, by + bh + 15);
   drawCornerButtons();
 }
 function drawGameOver() {
