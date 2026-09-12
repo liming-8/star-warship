@@ -1,0 +1,1428 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>星空战舰</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { width: 100%; height: 100%; background: #05060f; overflow: hidden; }
+body { display: flex; align-items: center; justify-content: center; font-family: "Microsoft YaHei", sans-serif; }
+canvas { display: block; box-shadow: 0 0 80px rgba(60,120,255,.25); }
+canvas:focus { outline: none; }
+#nick-overlay { display:none; position:fixed; inset:0; background:rgba(3,5,15,0.9); z-index:99; align-items:center; justify-content:center; font-family:"Microsoft YaHei",sans-serif; }
+.nick-panel { text-align:center; width:440px; max-width:92vw; padding:30px 26px; border:1px solid rgba(127,212,255,.45); border-radius:14px; background:rgba(10,18,40,.95); box-shadow:0 0 60px rgba(60,140,255,.25); }
+.nick-panel h2 { margin:0 0 10px; font-size:26px; letter-spacing:4px; color:#dff6ff; }
+.nick-panel p { font-size:13px; color:#9ad7ff; margin:0 0 18px; line-height:1.7; }
+.nick-panel input { width:260px; padding:10px 12px; font-size:16px; background:#0a1428; border:1px solid #4ec2ff; border-radius:8px; color:#fff; outline:none; text-align:center; }
+.nick-panel input:focus { border-color:#7ef0ff; }
+#nick-msg { font-size:13px; color:#ffb08a; min-height:20px; margin:10px 0 14px; line-height:1.5; }
+.nick-btn { padding:10px 34px; font-size:15px; background:#1f6feb; color:#fff; border:none; border-radius:8px; cursor:pointer; }
+.nick-btn:hover { background:#2b7df5; }
+.nick-btn:disabled { opacity:.5; cursor:default; }
+.nick-offline { display:none; margin-left:10px; padding:10px 20px; font-size:14px; background:transparent; color:#8fb6d9; border:1px solid #4a6a8f; border-radius:8px; cursor:pointer; }
+</style>
+</head>
+<body>
+<canvas id="game" width="960" height="640" tabindex="0"></canvas>
+<div id="nick-overlay">
+  <div class="nick-panel">
+    <h2 id="nick-title">设置你的昵称</h2>
+    <p>昵称将显示在全体排行榜上，且不能与其他玩家重复<br>（2-12 个字符，支持中文）</p>
+    <input id="nick-input" type="text" maxlength="12" placeholder="请输入昵称">
+    <div id="nick-msg"></div>
+    <button class="nick-btn" id="nick-btn">确认</button>
+    <button class="nick-offline" id="nick-offline">离线模式继续</button>
+  </div>
+</div>
+<script src="config.js"></script>
+<script>
+'use strict';
+/* ==================== 云端配置 ==================== */
+const GAME_CONFIG = (typeof window !== 'undefined' && window.GAME_CONFIG) ? window.GAME_CONFIG : { SUPABASE_URL: '', SUPABASE_ANON_KEY: '' };
+
+/* ==================== 基础设置 ==================== */
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const W = 960, H = 640;
+
+function resizeCanvas() {
+  const sw = window.innerWidth, sh = window.innerHeight;
+  const s = Math.min(sw / W, sh / H);
+  canvas.style.width = (W * s) + 'px';
+  canvas.style.height = (H * s) + 'px';
+}
+resizeCanvas();
+window.addEventListener('resize', resizeCanvas);
+
+/* ==================== 工具函数 ==================== */
+const rand = (a, b) => a + Math.random() * (b - a);
+const randInt = (a, b) => Math.floor(rand(a, b + 1));
+const clamp = (v, a, b) => (v < a ? a : (v > b ? b : v));
+const distSq = (ax, ay, bx, by) => { const dx = ax - bx, dy = ay - by; return dx * dx + dy * dy; };
+
+/* ==================== 输入 ==================== */
+const keys = {};
+const mouse = { x: W / 2, y: H * 0.7, down: false, rdown: false };
+let lastMouseMove = -10;
+
+function toLogical(e) {
+  const r = canvas.getBoundingClientRect();
+  return { x: (e.clientX - r.left) / r.width * W, y: (e.clientY - r.top) / r.height * H };
+}
+
+window.addEventListener('keydown', (e) => {
+  if (nickOpen) {
+    if (e.code === 'Enter') { e.preventDefault(); nickBtn.click(); }
+    return;
+  }
+  if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) e.preventDefault();
+  keys[e.code] = true;
+  if (e.code === 'Enter') {
+    if (state === 'menu' || state === 'gameover') startGame();
+    else if (state === 'win') { state = 'playing'; nextWave(); }
+    else if (state === 'board') { state = prevState; if (state === 'playing') paused = prevPaused; }
+  }
+  if (e.code === 'KeyP') { if (state === 'playing') paused = !paused; }
+  if (e.code === 'KeyM') muted = !muted;
+  if (e.code === 'KeyN') { if (state === 'menu') openNicknameOverlay('rename'); }
+  if (e.code === 'KeyT') {
+    if (state === 'board') { state = prevState; if (state === 'playing') paused = prevPaused; }
+    else { prevPaused = paused; prevState = state; if (state === 'playing') paused = true; state = 'board'; if (boardTab === 'global') loadGlobalBoard(); }
+  }
+  if (e.code === 'Escape') {
+    if (state === 'board') { state = prevState; if (state === 'playing') paused = prevPaused; }
+  }
+  if (e.code === 'Digit1') { if (state === 'board') { boardTab = 'global'; loadGlobalBoard(); } }
+  if (e.code === 'Digit2') { if (state === 'board') boardTab = 'personal'; }
+  if (e.code === 'KeyX' || e.code === 'KeyC') { if (state === 'playing') tryFireMissile(); }
+});
+window.addEventListener('keyup', (e) => { keys[e.code] = false; });
+
+canvas.addEventListener('pointermove', (e) => {
+  const p = toLogical(e); mouse.x = p.x; mouse.y = p.y;
+  lastMouseMove = time;
+});
+canvas.addEventListener('pointerdown', (e) => {
+  initAudio();
+  const p = toLogical(e); mouse.x = p.x; mouse.y = p.y; lastMouseMove = time;
+  if (e.button === 2) { mouse.rdown = true; if (state === 'playing') tryFireMissile(); }
+  else { mouse.down = true; }
+  if (state === 'menu') {
+    const p = toLogical(e);
+    const bx = W / 2 - 85, by = 545, bw = 170, bh = 46;
+    if (p.x >= bx && p.x <= bx + bw && p.y >= by && p.y <= by + bh) state = 'board';
+    else startGame();
+  } else if (state === 'gameover') startGame();
+  else if (state === 'board') {
+    const pb = toLogical(e);
+    const y = 128, h = 36, w = 200;
+    if (pb.y >= y && pb.y <= y + h) {
+      if (Math.abs(pb.x - (W / 2 - 100)) <= w / 2) { boardTab = 'global'; loadGlobalBoard(); return; }
+      if (Math.abs(pb.x - (W / 2 + 100)) <= w / 2) { boardTab = 'personal'; return; }
+    }
+    state = prevState; if (state === 'playing') paused = prevPaused;
+  }
+  else if (state === 'win') { state = 'playing'; nextWave(); }
+});
+window.addEventListener('pointerup', (e) => { if (e.button === 2) mouse.rdown = false; else mouse.down = false; });
+canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+
+/* ==================== 音频 ==================== */
+let audioCtx = null, muted = false;
+function initAudio() {
+  if (!audioCtx) {
+    try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch (err) {}
+  }
+  if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+}
+function tone(freq, dur, type, vol, slideTo) {
+  if (muted || !audioCtx) return;
+  const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+  o.type = type || 'square';
+  o.frequency.setValueAtTime(freq, audioCtx.currentTime);
+  if (slideTo) o.frequency.exponentialRampToValueAtTime(slideTo, audioCtx.currentTime + dur);
+  g.gain.setValueAtTime(vol || 0.25, audioCtx.currentTime);
+  g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + dur);
+  o.connect(g); g.connect(audioCtx.destination);
+  o.start(); o.stop(audioCtx.currentTime + dur);
+}
+function noise(dur, vol, cutoff) {
+  if (muted || !audioCtx) return;
+  const n = Math.floor(audioCtx.sampleRate * dur);
+  const buf = audioCtx.createBuffer(1, n, audioCtx.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / n);
+  const src = audioCtx.createBufferSource(); src.buffer = buf;
+  const f = audioCtx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = cutoff || 1200;
+  const g = audioCtx.createGain(); g.gain.value = vol || 0.3;
+  src.connect(f); f.connect(g); g.connect(audioCtx.destination);
+  src.start();
+}
+const sfx = {
+  shoot()   { tone(880, 0.08, 'square', 0.10, 220); },
+  missile() { tone(300, 0.30, 'sawtooth', 0.16, 900); },
+  hit()     { noise(0.10, 0.18, 900); },
+  boom(big) { noise(big ? 0.7 : 0.35, big ? 0.45 : 0.28, big ? 500 : 900); tone(120, 0.3, 'sawtooth', 0.18, 40); },
+  powerup() { tone(523, 0.10, 'square', 0.18); setTimeout(() => tone(784, 0.12, 'square', 0.18), 90); setTimeout(() => tone(1046, 0.20, 'square', 0.18), 180); },
+  playerHit(){ tone(200, 0.40, 'sawtooth', 0.28, 50); noise(0.3, 0.3, 700); },
+  wave()    { tone(392, 0.12, 'triangle', 0.22); setTimeout(() => tone(523, 0.12, 'triangle', 0.22), 120); setTimeout(() => tone(659, 0.22, 'triangle', 0.22), 240); },
+  gameover(){ tone(400, 0.30, 'sawtooth', 0.22, 200); setTimeout(() => tone(280, 0.30, 'sawtooth', 0.22, 140), 250); setTimeout(() => tone(160, 0.60, 'sawtooth', 0.22, 60), 500); },
+  win()     { tone(523, 0.15, 'triangle', 0.25); setTimeout(() => tone(659, 0.15, 'triangle', 0.25), 150); setTimeout(() => tone(784, 0.15, 'triangle', 0.25), 300); setTimeout(() => tone(1046, 0.40, 'triangle', 0.28), 450); },
+};
+
+/* ==================== 星空背景 ==================== */
+const stars = [];
+function initStars() {
+  for (let i = 0; i < 140; i++) stars.push({ x: rand(0, W), y: rand(0, H), z: rand(0.25, 1), tw: rand(0, Math.PI * 2) });
+}
+initStars();
+function updateStars(dt, speedMul) {
+  for (const s of stars) {
+    s.y += (20 + s.z * 90) * speedMul * dt;
+    s.tw += dt * 2;
+    if (s.y > H) { s.y = -2; s.x = rand(0, W); }
+  }
+}
+function drawStars() {
+  for (const s of stars) {
+    const a = 0.35 + 0.65 * s.z * (0.7 + 0.3 * Math.sin(s.tw));
+    ctx.fillStyle = 'rgba(255,255,255,' + a.toFixed(2) + ')';
+    const r = s.z * 1.6;
+    ctx.fillRect(s.x, s.y, r, r);
+  }
+}
+const nebulas = [
+  { x: W * 0.20, y: H * 0.25, r: 260, c: 'rgba(80,60,180,0.16)' },
+  { x: W * 0.80, y: H * 0.60, r: 300, c: 'rgba(30,120,160,0.13)' },
+  { x: W * 0.55, y: H * 0.88, r: 240, c: 'rgba(120,40,140,0.10)' },
+];
+function drawBackground() {
+  const g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, '#070b22');
+  g.addColorStop(0.5, '#0a0f2e');
+  g.addColorStop(1, '#04050f');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, H);
+  for (const n of nebulas) {
+    const ng = ctx.createRadialGradient(n.x, n.y, 0, n.x, n.y, n.r);
+    ng.addColorStop(0, n.c);
+    ng.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = ng;
+    ctx.fillRect(n.x - n.r, n.y - n.r, n.r * 2, n.r * 2);
+  }
+}
+
+/* ==================== 粒子 ==================== */
+const particles = [];
+function spawnExplosion(x, y, color, n, power) {
+  n = n || 22; power = power || 1;
+  for (let i = 0; i < n; i++) {
+    const a = rand(0, Math.PI * 2), sp = rand(40, 260) * power;
+    particles.push({
+      x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
+      life: rand(0.3, 0.8) * power, maxLife: 0.8 * power,
+      size: rand(1.5, 4) * power, color,
+    });
+  }
+}
+function spawnTrail(x, y, color, size) {
+  particles.push({ x: x + rand(-2, 2), y: y + rand(-2, 2), vx: rand(-12, 12), vy: rand(30, 70), life: 0.25, maxLife: 0.25, size: size || 2, color });
+}
+function updateParticles(dt) {
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i];
+    p.life -= dt; p.x += p.vx * dt; p.y += p.vy * dt; p.vx *= 0.98; p.vy *= 0.98;
+    if (p.life <= 0) particles.splice(i, 1);
+  }
+  if (particles.length > 800) particles.splice(0, particles.length - 800);
+}
+function drawParticles() {
+  for (const p of particles) {
+    ctx.globalAlpha = Math.max(0, p.life / p.maxLife);
+    ctx.fillStyle = p.color;
+    ctx.beginPath(); ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+}
+
+/* ==================== 漂浮文字 ==================== */
+const floaters = [];
+function addFloater(x, y, text, color) {
+  floaters.push({ x, y, text, color: color || '#ffd76a', life: 1.2, maxLife: 1.2 });
+}
+function updateFloaters(dt) {
+  for (let i = floaters.length - 1; i >= 0; i--) {
+    const f = floaters[i];
+    f.life -= dt; f.y -= 40 * dt;
+    if (f.life <= 0) floaters.splice(i, 1);
+  }
+}
+function drawFloaters() {
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  for (const f of floaters) {
+    ctx.globalAlpha = clamp(f.life / f.maxLife, 0, 1);
+    ctx.font = 'bold 16px "Microsoft YaHei"';
+    ctx.fillStyle = f.color;
+    ctx.fillText(f.text, f.x, f.y);
+  }
+  ctx.globalAlpha = 1;
+}
+
+/* ==================== 玩家 ==================== */
+const player = {
+  x: W / 2, y: H - 80, r: 16, speed: 340,
+  hp: 3, maxHp: 3, invuln: 0,
+  weaponLevel: 1,
+  hasMissile: true, missileAmmo: 4, missileCd: 0,
+  fireCd: 0, shield: false, dead: false,
+};
+
+function drawPlayerShip(x, y, invuln, shield, scale) {
+  ctx.save();
+  ctx.translate(x, y);
+  if (scale && scale !== 1) ctx.scale(scale, scale);
+  if (invuln > 0 && Math.floor(invuln * 18) % 2 === 0) ctx.globalAlpha = 0.35;
+
+  const fl = 10 + Math.random() * 12;
+  const grad = ctx.createLinearGradient(0, 14, 0, 14 + fl);
+  grad.addColorStop(0, 'rgba(120,220,255,1)');
+  grad.addColorStop(1, 'rgba(60,120,255,0)');
+  ctx.fillStyle = grad;
+  ctx.beginPath(); ctx.moveTo(-6, 12); ctx.lineTo(6, 12); ctx.lineTo(0, 14 + fl); ctx.closePath(); ctx.fill();
+
+  ctx.fillStyle = '#2b6cb0';
+  ctx.beginPath();
+  ctx.moveTo(0, -24); ctx.lineTo(18, 16); ctx.lineTo(7, 12); ctx.lineTo(0, 20); ctx.lineTo(-7, 12); ctx.lineTo(-18, 16);
+  ctx.closePath(); ctx.fill();
+  ctx.strokeStyle = '#7fd4ff'; ctx.lineWidth = 1.5; ctx.stroke();
+
+  ctx.fillStyle = '#eaf7ff';
+  ctx.beginPath(); ctx.moveTo(0, -24); ctx.lineTo(8, 8); ctx.lineTo(0, 14); ctx.lineTo(-8, 8); ctx.closePath(); ctx.fill();
+
+  ctx.fillStyle = '#39c5ff';
+  ctx.beginPath(); ctx.ellipse(0, -8, 3.5, 7, 0, 0, Math.PI * 2); ctx.fill();
+
+  ctx.fillStyle = '#ff5d5d';
+  ctx.beginPath(); ctx.arc(-18, 16, 2, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(18, 16, 2, 0, Math.PI * 2); ctx.fill();
+
+  if (shield) {
+    ctx.strokeStyle = 'rgba(80,200,255,0.55)';
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(0, 0, 34, 0, Math.PI * 2); ctx.stroke();
+    ctx.fillStyle = 'rgba(80,200,255,0.08)';
+    ctx.beginPath(); ctx.arc(0, 0, 34, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.restore();
+}
+function drawPlayer() {
+  if (player.dead) return;
+  drawPlayerShip(player.x, player.y, player.invuln, player.shield, 1);
+}
+
+function updatePlayer(dt) {
+  const p = player;
+  let dx = 0, dy = 0;
+  if (keys['ArrowLeft'] || keys['KeyA']) dx -= 1;
+  if (keys['ArrowRight'] || keys['KeyD']) dx += 1;
+  if (keys['ArrowUp'] || keys['KeyW']) dy -= 1;
+  if (keys['ArrowDown'] || keys['KeyS']) dy += 1;
+  const useMouse = (time - lastMouseMove < 2.5) || mouse.down || mouse.rdown;
+  if (useMouse) {
+    p.x += (mouse.x - p.x) * Math.min(1, dt * 12);
+    p.y += (mouse.y - p.y) * Math.min(1, dt * 12);
+  } else {
+    const len = Math.hypot(dx, dy);
+    if (len > 0) { p.x += dx / len * p.speed * dt; p.y += dy / len * p.speed * dt; }
+  }
+  p.x = clamp(p.x, 26, W - 26);
+  p.y = clamp(p.y, 40, H - 26);
+  p.fireCd -= dt; p.missileCd -= dt; p.invuln -= dt;
+
+  if (Math.random() < 0.7) spawnTrail(p.x, p.y + 16, 'rgba(80,180,255,0.8)', 2.2);
+
+  if ((keys['Space'] || mouse.down) && p.fireCd <= 0) {
+    p.fireCd = [0.18, 0.16, 0.14, 0.12][p.weaponLevel - 1];
+    fireBullets();
+  }
+}
+
+function hurtPlayer() {
+  const p = player;
+  if (p.invuln > 0 || p.dead) return;
+  if (p.shield) {
+    p.shield = false; p.invuln = 1.2;
+    spawnExplosion(p.x, p.y, '#7ef0ff', 18, 0.8);
+    sfx.hit(); shake = 8;
+    return;
+  }
+  p.hp--;
+  p.invuln = 2;
+  spawnExplosion(p.x, p.y, '#7fd4ff', 26, 1);
+  sfx.playerHit(); shake = 14; flash = 0.5;
+  if (p.hp <= 0) {
+    p.dead = true;
+    spawnExplosion(p.x, p.y, '#ff8d6b', 70, 2.2);
+    shake = 20; flash = 0.8;
+    state = 'gameover';
+    lastScoreRank = addScoreEntry(score, wave);
+    submitScoreToCloud();
+    if (score > highScore) { highScore = score; try { localStorage.setItem('starwarship_high', String(highScore)); } catch (err) {} }
+    sfx.gameover();
+  }
+}
+
+/* ==================== 子弹 / 导弹 ==================== */
+const pBullets = [], eBullets = [], missiles = [];
+const BULLET_SPEED = 720, MISSILE_SPEED = 400;
+
+function fireBullets() {
+  const lvl = player.weaponLevel;
+  let shots;
+  if (lvl === 1) shots = [0];
+  else if (lvl === 2) shots = [-9, 9];
+  else if (lvl === 3) shots = [0, -13, 13];
+  else shots = [-7, 7, -16, 16];
+  for (const ox of shots) {
+    pBullets.push({ x: player.x + ox, y: player.y - 20, vx: 0, vy: -BULLET_SPEED, r: 4, dmg: 1 });
+  }
+  sfx.shoot();
+}
+function tryFireMissile() {
+  if (state !== 'playing' || paused) return;
+  if (!player.hasMissile || player.missileAmmo <= 0 || player.missileCd > 0) return;
+  player.missileCd = 0.45;
+  player.missileAmmo--;
+  missiles.push({ x: player.x, y: player.y - 16, vx: 0, vy: -MISSILE_SPEED, r: 7, dmg: 6, explodeR: 70, t: 0 });
+  sfx.missile();
+}
+function updateBullets(dt) {
+  for (let i = pBullets.length - 1; i >= 0; i--) {
+    const b = pBullets[i];
+    b.x += b.vx * dt; b.y += b.vy * dt;
+    if (b.y < -20 || b.x < -20 || b.x > W + 20) pBullets.splice(i, 1);
+  }
+  for (let i = eBullets.length - 1; i >= 0; i--) {
+    const b = eBullets[i];
+    b.x += b.vx * dt; b.y += b.vy * dt;
+    if (b.y < -20 || b.y > H + 20 || b.x < -20 || b.x > W + 20) eBullets.splice(i, 1);
+  }
+}
+function updateMissiles(dt) {
+  for (let i = missiles.length - 1; i >= 0; i--) {
+    const m = missiles[i];
+    m.t += dt;
+    if (Math.random() < 0.8) spawnTrail(m.x, m.y, 'rgba(255,160,60,0.9)', 3);
+    let best = null, bd = Infinity;
+    for (const e of enemies) {
+      if (e.dead) continue;
+      const d = distSq(m.x, m.y, e.x, e.y);
+      if (d < bd) { bd = d; best = e; }
+    }
+    if (best) {
+      const curA = Math.atan2(m.vy, m.vx);
+      const targetA = Math.atan2(best.y - m.y, best.x - m.x);
+      let da = targetA - curA;
+      while (da > Math.PI) da -= Math.PI * 2;
+      while (da < -Math.PI) da += Math.PI * 2;
+      const na = curA + clamp(da, -4.5 * dt, 4.5 * dt);
+      m.vx = Math.cos(na) * MISSILE_SPEED;
+      m.vy = Math.sin(na) * MISSILE_SPEED;
+    }
+    m.x += m.vx * dt; m.y += m.vy * dt;
+    if (m.t > 6 || m.y < -40 || m.x < -40 || m.x > W + 40) { missiles.splice(i, 1); continue; }
+    let hit = false;
+    for (const e of enemies) {
+      if (e.dead) continue;
+      if (distSq(m.x, m.y, e.x, e.y) < (e.r + m.r) ** 2) { hit = true; break; }
+    }
+    if (hit) explodeMissile(i);
+  }
+}
+function explodeMissile(idx) {
+  const m = missiles[idx];
+  for (const e of enemies) {
+    if (e.dead) continue;
+    if (distSq(m.x, m.y, e.x, e.y) < (e.r + m.explodeR) ** 2) damageEnemy(e, m.dmg);
+  }
+  spawnExplosion(m.x, m.y, '#ffb347', 28, 1.2);
+  spawnExplosion(m.x, m.y, '#ff6b35', 14, 0.9);
+  shake = Math.max(shake, 7);
+  sfx.boom(false);
+  missiles.splice(idx, 1);
+}
+function drawBullets() {
+  for (const b of pBullets) {
+    ctx.fillStyle = '#aef4ff';
+    ctx.beginPath(); ctx.ellipse(b.x, b.y, 3, 9, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = 'rgba(174,244,255,0.5)';
+    ctx.beginPath(); ctx.ellipse(b.x, b.y - 6, 2, 10, 0, 0, Math.PI * 2); ctx.fill();
+  }
+  for (const b of eBullets) {
+    ctx.fillStyle = '#ff7a6b';
+    ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = 'rgba(255,122,107,0.4)';
+    ctx.beginPath(); ctx.arc(b.x, b.y, b.r + 3, 0, Math.PI * 2); ctx.fill();
+  }
+}
+function drawMissiles() {
+  for (const m of missiles) {
+    const a = Math.atan2(m.vy, m.vx);
+    ctx.save(); ctx.translate(m.x, m.y); ctx.rotate(a);
+    ctx.fillStyle = '#ffb347';
+    ctx.beginPath(); ctx.moveTo(14, 0); ctx.lineTo(-8, -5); ctx.lineTo(-5, 0); ctx.lineTo(-8, 5); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = 1; ctx.stroke();
+    ctx.fillStyle = '#ff5d5d';
+    ctx.beginPath(); ctx.arc(0, 0, 3, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  }
+}
+
+/* ==================== 敌人 ==================== */
+const ENEMY_DEFS = {
+  scout:      { hp: 1,   score: 100,  r: 15, speed: 130, color: '#ff6b6b' },
+  frigate:    { hp: 5,   score: 250,  r: 26, speed: 70,  color: '#4ecdc4' },
+  battleship: { hp: 16,  score: 500,  r: 40, speed: 34,  color: '#c98a4b' },
+  boss:       { hp: 100, score: 3000, r: 72, speed: 60,  color: '#d44' },
+};
+const enemies = [];
+
+function spawnEnemy(type, x) {
+  const def = ENEMY_DEFS[type];
+  let hp = def.hp;
+  if (type === 'boss') hp = 160 + wave * 20;
+  enemies.push({
+    type, x: (x === undefined || x === null) ? rand(60, W - 60) : x, y: -def.r - 10,
+    r: def.r, hp, maxHp: hp, score: def.score, speed: def.speed,
+    t: rand(0, 10), targetX: rand(100, W - 100),
+    targetY: type === 'scout' ? 0 : (type === 'frigate' ? rand(100, 220) : rand(110, 200)),
+    fireTimer: rand(1.2, 2.8), entered: false, dead: false,
+  });
+}
+function fireEnemyShot(x, y, angleOff, speed) {
+  const a = Math.atan2(player.y - y, player.x - x) + angleOff;
+  eBullets.push({ x, y, vx: Math.cos(a) * speed, vy: Math.sin(a) * speed, r: 5 });
+}
+function bossAttack(e) {
+  const n = 14;
+  for (let k = 0; k < n; k++) {
+    const a = (Math.PI * 2 * k) / n + e.t * 1.5;
+    eBullets.push({ x: e.x, y: e.y + e.r * 0.5, vx: Math.cos(a) * 150, vy: Math.sin(a) * 150, r: 5 });
+  }
+  const a2 = Math.atan2(player.y - e.y, player.x - e.x);
+  for (let k = -1; k <= 1; k++) {
+    eBullets.push({ x: e.x, y: e.y + e.r * 0.5, vx: Math.cos(a2 + k * 0.25) * 260, vy: Math.sin(a2 + k * 0.25) * 260, r: 5 });
+  }
+}
+function updateEnemies(dt) {
+  for (let i = enemies.length - 1; i >= 0; i--) {
+    const e = enemies[i];
+    if (e.dead) { enemies.splice(i, 1); continue; }
+    e.t += dt;
+    if (e.type === 'scout') {
+      e.y += e.speed * dt;
+      e.x = e.targetX + Math.sin(e.t * 1.8) * 55;
+      e.fireTimer -= dt;
+      if (e.fireTimer <= 0 && e.y > 40) { e.fireTimer = rand(2, 4); fireEnemyShot(e.x, e.y + e.r, 0, 200); }
+      if (e.y > H + 60) { enemies.splice(i, 1); continue; }
+    } else if (e.type === 'frigate' || e.type === 'battleship') {
+      if (!e.entered) {
+        e.y += e.speed * dt;
+        e.x += (e.targetX - e.x) * Math.min(1, dt * 1.5);
+        if (e.y >= e.targetY) e.entered = true;
+      } else {
+        e.y = e.targetY + Math.sin(e.t * 0.8) * 8;
+        e.x += (e.targetX - e.x) * Math.min(1, dt * 0.8);
+        e.fireTimer -= dt;
+        if (e.fireTimer <= 0) {
+          e.fireTimer = e.type === 'frigate' ? rand(1.6, 2.6) : rand(2.4, 3.4);
+          if (e.type === 'frigate') {
+            for (let k = -1; k <= 1; k++) fireEnemyShot(e.x, e.y + e.r * 0.6, k * 0.22, 220);
+          } else {
+            for (let k = -2; k <= 2; k++) fireEnemyShot(e.x, e.y + e.r * 0.6, k * 0.18, 190);
+          }
+        }
+      }
+      if (Math.random() < dt * 0.2) e.targetX = rand(100, W - 100);
+    } else if (e.type === 'boss') {
+      e.x += Math.sin(e.t * 0.5) * e.speed * dt * 2.2;
+      e.x = clamp(e.x, 140, W - 140);
+      e.y = 120 + Math.sin(e.t * 0.7) * 12;
+      e.fireTimer -= dt;
+      if (e.fireTimer <= 0) { e.fireTimer = rand(1.1, 1.7); bossAttack(e); }
+    }
+  }
+}
+function damageEnemy(e, dmg) {
+  if (e.dead) return;
+  e.hp -= dmg;
+  spawnTrail(e.x, e.y, '#ffffff', 3);
+  if (e.hp <= 0) {
+    e.dead = true;
+    score += e.score;
+    addFloater(e.x, e.y, '+' + e.score, '#ffd76a');
+    spawnExplosion(e.x, e.y, e.color, e.type === 'boss' ? 60 : (e.type === 'battleship' ? 40 : 22), e.type === 'boss' ? 2 : 1);
+    sfx.boom(e.type === 'boss' || e.type === 'battleship');
+    if (e.type === 'boss') shake = 18; else shake = Math.max(shake, 5);
+    if (Math.random() < 0.16) dropPowerup(e.x, e.y);
+  } else {
+    sfx.hit();
+  }
+}
+function drawScout(e) {
+  ctx.save(); ctx.translate(e.x, e.y);
+  ctx.fillStyle = 'rgba(255,120,60,0.8)';
+  ctx.beginPath(); ctx.moveTo(-4, 10); ctx.lineTo(4, 10); ctx.lineTo(0, 10 + rand(3, 7)); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#d64545';
+  ctx.beginPath(); ctx.moveTo(0, -14); ctx.lineTo(10, 10); ctx.lineTo(0, 6); ctx.lineTo(-10, 10); ctx.closePath(); ctx.fill();
+  ctx.strokeStyle = '#ff9d9d'; ctx.lineWidth = 1; ctx.stroke();
+  ctx.fillStyle = '#ffe08a';
+  ctx.beginPath(); ctx.arc(0, 0, 3, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+}
+function drawFrigate(e) {
+  ctx.save(); ctx.translate(e.x, e.y);
+  ctx.fillStyle = '#3a7d74';
+  ctx.beginPath();
+  ctx.moveTo(0, 24); ctx.lineTo(20, -6); ctx.lineTo(26, -16); ctx.lineTo(-26, -16); ctx.lineTo(-20, -6);
+  ctx.closePath(); ctx.fill();
+  ctx.strokeStyle = '#8ff0e0'; ctx.lineWidth = 1.5; ctx.stroke();
+  ctx.fillStyle = '#2a5c55';
+  ctx.beginPath(); ctx.ellipse(0, 2, 12, 16, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#ffe08a';
+  ctx.beginPath(); ctx.arc(0, 6, 4, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#ff5d5d';
+  ctx.beginPath(); ctx.arc(-26, -16, 3, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(26, -16, 3, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+}
+function drawBattleship(e) {
+  ctx.save(); ctx.translate(e.x, e.y);
+  ctx.fillStyle = '#5a4632';
+  ctx.beginPath();
+  ctx.moveTo(0, 40); ctx.lineTo(34, 4); ctx.lineTo(42, -14); ctx.lineTo(28, -24); ctx.lineTo(-28, -24); ctx.lineTo(-42, -14); ctx.lineTo(-34, 4);
+  ctx.closePath(); ctx.fill();
+  ctx.strokeStyle = '#c9a86a'; ctx.lineWidth = 2; ctx.stroke();
+  ctx.fillStyle = '#43311f';
+  ctx.beginPath(); ctx.ellipse(0, -8, 24, 12, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#6b5339';
+  ctx.beginPath(); ctx.arc(-14, -10, 7, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(14, -10, 7, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#8a6d4b';
+  ctx.beginPath(); ctx.arc(-14, -10, 4, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(14, -10, 4, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+}
+function drawBoss(e) {
+  ctx.save(); ctx.translate(e.x, e.y);
+  ctx.fillStyle = 'rgba(255,90,60,0.25)';
+  ctx.beginPath(); ctx.arc(0, 30, 40 + Math.sin(e.t * 4) * 6, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#5a2530';
+  ctx.beginPath();
+  ctx.moveTo(0, 46); ctx.lineTo(40, 26); ctx.lineTo(74, 6); ctx.lineTo(66, -30); ctx.lineTo(20, -46); ctx.lineTo(0, -54);
+  ctx.lineTo(-20, -46); ctx.lineTo(-66, -30); ctx.lineTo(-74, 6); ctx.lineTo(-40, 26);
+  ctx.closePath(); ctx.fill();
+  ctx.strokeStyle = '#e06b6b'; ctx.lineWidth = 2; ctx.stroke();
+  ctx.strokeStyle = 'rgba(255,180,180,0.35)'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(0, -54); ctx.lineTo(0, 40); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(-30, -38); ctx.lineTo(-30, 20); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(30, -38); ctx.lineTo(30, 20); ctx.stroke();
+  ctx.fillStyle = '#ff5d5d';
+  ctx.beginPath(); ctx.arc(0, 10, 12, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#ffd76a';
+  ctx.beginPath(); ctx.arc(0, 10, 6, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#7a3540';
+  ctx.beginPath(); ctx.arc(-55, -8, 12, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(55, -8, 12, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#e06b6b';
+  ctx.beginPath(); ctx.arc(-55, -8, 6, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(55, -8, 6, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+}
+function drawEnemies() {
+  for (const e of enemies) {
+    if (e.dead) continue;
+    if (e.hp < e.maxHp) {
+      const bw = e.r * 1.6, bh = 4;
+      ctx.fillStyle = 'rgba(0,0,0,0.5)';
+      ctx.fillRect(e.x - bw / 2, e.y - e.r - 12, bw, bh);
+      ctx.fillStyle = '#ff5d5d';
+      ctx.fillRect(e.x - bw / 2, e.y - e.r - 12, bw * clamp(e.hp / e.maxHp, 0, 1), bh);
+    }
+    if (e.type === 'scout') drawScout(e);
+    else if (e.type === 'frigate') drawFrigate(e);
+    else if (e.type === 'battleship') drawBattleship(e);
+    else drawBoss(e);
+  }
+}
+
+/* ==================== 道具 ==================== */
+const POWERUP_TYPES = ['W', 'M', 'S', 'H'];
+const powerups = [];
+function dropPowerup(x, y) {
+  const t = POWERUP_TYPES[Math.random() < 0.5 ? 0 : randInt(1, 3)];
+  powerups.push({ x, y, type: t, t: 0, vy: 60 });
+}
+function updatePowerups(dt) {
+  for (let i = powerups.length - 1; i >= 0; i--) {
+    const p = powerups[i];
+    p.t += dt; p.y += p.vy * dt; p.x += Math.sin(p.t * 2) * 30 * dt;
+    if (p.y > H + 20) { powerups.splice(i, 1); continue; }
+    if (distSq(p.x, p.y, player.x, player.y) < (player.r + 18) ** 2) {
+      applyPowerup(p.type);
+      powerups.splice(i, 1);
+    }
+  }
+}
+function applyPowerup(t) {
+  if (t === 'W') { player.weaponLevel = Math.min(4, player.weaponLevel + 1); addFloater(player.x, player.y - 30, '武器升级！', '#7ff'); }
+  if (t === 'M') { player.hasMissile = true; player.missileAmmo = Math.min(12, player.missileAmmo + 6); addFloater(player.x, player.y - 30, '导弹 +6', '#ffb347'); }
+  if (t === 'S') { player.shield = true; addFloater(player.x, player.y - 30, '护盾！', '#7ef0ff'); }
+  if (t === 'H') { player.hp = Math.min(player.maxHp, player.hp + 1); addFloater(player.x, player.y - 30, '生命 +1', '#8dff8d'); }
+  sfx.powerup();
+}
+function drawPowerups() {
+  const colors = { W: '#4ecdc4', M: '#ffb347', S: '#7ef0ff', H: '#8dff8d' };
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  for (const p of powerups) {
+    ctx.save(); ctx.translate(p.x, p.y);
+    ctx.globalAlpha = 0.85;
+    ctx.fillStyle = colors[p.type];
+    ctx.beginPath();
+    for (let k = 0; k < 6; k++) {
+      const a = k * Math.PI / 3, px = Math.cos(a) * 14, py = Math.sin(a) * 14;
+      if (k === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    }
+    ctx.closePath(); ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = '#0a1420';
+    ctx.font = 'bold 13px Arial';
+    ctx.fillText(p.type, 0, 1);
+    ctx.restore();
+  }
+}
+
+/* ==================== 波次管理 ==================== */
+let wave = 0, spawnQueue = [], spawnTimer = 0, bossAlive = false;
+let waitingNext = false, nextWaveTimer = 0;
+let waveBanner = 0, waveBannerText = '';
+
+function startGame() {
+  initAudio();
+  score = 0; wave = 0;
+  player.x = W / 2; player.y = H - 80;
+  player.hp = player.maxHp; player.invuln = 1.5; player.weaponLevel = 1;
+  player.hasMissile = true; player.missileAmmo = 4; player.shield = false; player.dead = false;
+  player.fireCd = 0; player.missileCd = 0;
+  mouse.x = W / 2; mouse.y = H * 0.7; lastMouseMove = -10;
+  pBullets.length = 0; eBullets.length = 0; missiles.length = 0;
+  enemies.length = 0; powerups.length = 0; particles.length = 0; floaters.length = 0;
+  bossAlive = false; waitingNext = false; paused = false;
+  startTime = Date.now();
+  cleared = false;
+  lastScoreRank = -1;
+  lastTimeRank = -1;
+  winTimeSec = 0;
+  state = 'playing';
+  nextWave();
+}
+function nextWave() {
+  wave++;
+  const n = wave;
+  const q = [];
+  const isBossWave = n % 5 === 0;
+  if (isBossWave) {
+    for (let i = 0; i < 4; i++) q.push('scout');
+    bossAlive = true;
+  } else {
+    const scouts = Math.min(4 + n, 14);
+    const frigs = Math.min(Math.floor(n / 2), 6);
+    const battles = n >= 4 ? Math.min(Math.floor((n - 1) / 3), 3) : 0;
+    for (let i = 0; i < scouts; i++) q.push('scout');
+    for (let i = 0; i < frigs; i++) q.push('frigate');
+    for (let i = 0; i < battles; i++) q.push('battleship');
+    for (let i = q.length - 1; i > 0; i--) { const j = randInt(0, i); [q[i], q[j]] = [q[j], q[i]]; }
+  }
+  spawnQueue = q;
+  spawnTimer = 1.0;
+  waveBanner = 2.2;
+  waveBannerText = isBossWave ? '警告！第 ' + n + ' 波 · 星际母舰来袭！' : '第 ' + n + ' 波';
+  sfx.wave();
+}
+function updateWaves(dt) {
+  spawnTimer -= dt;
+  if (spawnQueue.length > 0 && spawnTimer <= 0) {
+    const type = spawnQueue.shift();
+    spawnEnemy(type);
+    if (type === 'scout' && Math.random() < 0.5) spawnEnemy('scout');
+    spawnTimer = Math.max(0.35, 1.1 - wave * 0.06);
+  }
+  if (bossAlive && spawnQueue.length === 0 && !enemies.some(e => e.type === 'boss')) {
+    spawnEnemy('boss', W / 2);
+    bossAlive = false;
+  }
+  if (spawnQueue.length === 0 && enemies.length === 0 && !waitingNext) {
+    if (wave >= TOTAL_WAVES && !cleared) {
+      cleared = true;
+      winTimeSec = Math.max(1, Math.floor((Date.now() - startTime) / 1000));
+      lastTimeRank = addTimeEntry();
+      if (score > highScore) { highScore = score; try { localStorage.setItem('starwarship_high', String(highScore)); } catch (err) {} }
+      state = 'win';
+      submitScoreToCloud();
+      for (let i = 0; i < 50; i++) {
+        spawnExplosion(rand(0, W), rand(60, H * 0.5), ['#ffd76a', '#ffe9a8', '#ffb347', '#7ef0ff'][randInt(0, 3)], 6, 1.2);
+      }
+      sfx.win();
+      return;
+    }
+    waitingNext = true;
+    nextWaveTimer = 1.6;
+    const bonus = 200 + wave * 50;
+    score += bonus;
+    addFloater(W / 2, H / 2, '波次清空 奖励 +' + bonus, '#8dff8d');
+    waveBanner = 1.6;
+    waveBannerText = '第 ' + wave + ' 波完成！';
+  }
+  if (waitingNext) {
+    nextWaveTimer -= dt;
+    if (nextWaveTimer <= 0) { waitingNext = false; nextWave(); }
+  }
+}
+
+/* ==================== 碰撞 ==================== */
+function checkCollisions() {
+  for (let i = pBullets.length - 1; i >= 0; i--) {
+    const b = pBullets[i];
+    let hitEnemy = false;
+    for (const e of enemies) {
+      if (e.dead) continue;
+      if (distSq(b.x, b.y, e.x, e.y) < (e.r + b.r) ** 2) {
+        damageEnemy(e, b.dmg);
+        hitEnemy = true;
+        break;
+      }
+    }
+    if (hitEnemy) pBullets.splice(i, 1);
+  }
+  if (player.dead) return;
+  for (let i = eBullets.length - 1; i >= 0; i--) {
+    const b = eBullets[i];
+    if (distSq(b.x, b.y, player.x, player.y) < (player.r + b.r) ** 2) {
+      eBullets.splice(i, 1);
+      hurtPlayer();
+    }
+  }
+  for (const e of enemies) {
+    if (e.dead) continue;
+    if (distSq(e.x, e.y, player.x, player.y) < (e.r + player.r * 0.8) ** 2) {
+      damageEnemy(e, 999);
+      hurtPlayer();
+    }
+  }
+}
+
+/* ==================== 界面 ==================== */
+let highScore = 0;
+try { highScore = +(localStorage.getItem('starwarship_high') || 0); } catch (err) {}
+
+/* ==================== 排行榜存储 ==================== */
+const TOTAL_WAVES = 10;              // 通关波次：通过第 10 波即通关
+const SAVE_SCORES = 'starwarship_scoreboard';
+const SAVE_TIMES = 'starwarship_timeboard';
+let scoreBoard = [];                 // {score, wave, time}
+let timeBoard = [];                  // {time, score, wave}
+try {
+  const s = JSON.parse(localStorage.getItem(SAVE_SCORES) || '[]');
+  if (Array.isArray(s)) scoreBoard = s;
+  const t = JSON.parse(localStorage.getItem(SAVE_TIMES) || '[]');
+  if (Array.isArray(t)) timeBoard = t;
+} catch (err) {}
+function saveBoards() {
+  try {
+    localStorage.setItem(SAVE_SCORES, JSON.stringify(scoreBoard.slice(0, 10)));
+    localStorage.setItem(SAVE_TIMES, JSON.stringify(timeBoard.slice(0, 10)));
+  } catch (err) {}
+}
+function fmtTime(sec) {
+  sec = Math.max(0, sec | 0);
+  const m = Math.floor(sec / 60), s = sec % 60;
+  return m + ':' + (s < 10 ? '0' + s : s);
+}
+function addScoreEntry(scr, wv) {
+  const e = { score: scr, wave: wv, time: Math.max(1, Math.floor((Date.now() - startTime) / 1000)) };
+  scoreBoard.push(e);
+  scoreBoard.sort((a, b) => b.score - a.score || a.time - b.time);
+  scoreBoard = scoreBoard.slice(0, 10);
+  saveBoards();
+  return scoreBoard.indexOf(e);
+}
+function addTimeEntry() {
+  const e = { time: Math.max(1, Math.floor((Date.now() - startTime) / 1000)), score, wave };
+  timeBoard.push(e);
+  timeBoard.sort((a, b) => a.time - b.time || b.score - a.score);
+  timeBoard = timeBoard.slice(0, 10);
+  saveBoards();
+  return timeBoard.indexOf(e);
+}
+
+/* ==================== 全体排行榜云端（Supabase REST） ==================== */
+const CLOUD_ENABLED = !!(GAME_CONFIG.SUPABASE_URL && GAME_CONFIG.SUPABASE_ANON_KEY);
+
+function supabaseFetch(path, options) {
+  const headers = Object.assign({
+    'apikey': GAME_CONFIG.SUPABASE_ANON_KEY,
+    'Authorization': 'Bearer ' + GAME_CONFIG.SUPABASE_ANON_KEY,
+    'Content-Type': 'application/json',
+  }, (options && options.headers) || {});
+  return fetch(GAME_CONFIG.SUPABASE_URL + '/rest/v1/' + path, Object.assign({}, options, { headers }));
+}
+async function apiCheckNickname(name) {
+  if (!CLOUD_ENABLED) return { ok: true, available: true };
+  try {
+    const res = await supabaseFetch('players?nickname=eq.' + encodeURIComponent(name) + '&select=nickname');
+    if (!res.ok) throw new Error('http ' + res.status);
+    const rows = await res.json();
+    return { ok: true, available: rows.length === 0 };
+  } catch (err) { return { ok: false }; }
+}
+async function apiRegisterNickname(name) {
+  if (!CLOUD_ENABLED) return { ok: false, reason: 'disabled' };
+  try {
+    const res = await supabaseFetch('players', {
+      method: 'POST',
+      body: JSON.stringify({ nickname: name, score: 0, wave: 0, clear_time: 0 }),
+    });
+    if (res.status === 409) return { ok: false, reason: 'taken' };
+    if (!res.ok) throw new Error('http ' + res.status);
+    return { ok: true };
+  } catch (err) { return { ok: false, reason: 'offline' }; }
+}
+async function apiRenameNickname(oldName, newName) {
+  if (!CLOUD_ENABLED) return { ok: false, reason: 'disabled' };
+  try {
+    const res = await supabaseFetch('players?nickname=eq.' + encodeURIComponent(oldName), {
+      method: 'PATCH',
+      body: JSON.stringify({ nickname: newName }),
+    });
+    if (res.status === 409) return { ok: false, reason: 'taken' };
+    if (!res.ok) throw new Error('http ' + res.status);
+    return { ok: true };
+  } catch (err) { return { ok: false, reason: 'offline' }; }
+}
+async function apiSubmitScore(nickname, scr, wv, clearTime) {
+  if (!CLOUD_ENABLED || !nickname) return false;
+  try {
+    const res = await supabaseFetch('players?nickname=eq.' + encodeURIComponent(nickname) + '&select=nickname,score,wave,clear_time');
+    if (!res.ok) return false;
+    const rows = await res.json();
+    if (rows.length === 0) {
+      await supabaseFetch('players', {
+        method: 'POST',
+        body: JSON.stringify({ nickname: nickname, score: scr, wave: wv, clear_time: clearTime || 0 }),
+      });
+      return true;
+    }
+    const cur = rows[0];
+    if (scr <= cur.score) return true;
+    const upd = { score: scr, wave: wv };
+    if (clearTime > 0 && (cur.clear_time === 0 || clearTime < cur.clear_time)) upd.clear_time = clearTime;
+    await supabaseFetch('players?nickname=eq.' + encodeURIComponent(nickname), { method: 'PATCH', body: JSON.stringify(upd) });
+    return true;
+  } catch (err) { return false; }
+}
+function submitScoreToCloud() {
+  if (!CLOUD_ENABLED || !playerName) return;
+  apiSubmitScore(playerName, score, wave, winTimeSec).catch(function () {});
+}
+let globalState = 'idle';      // idle | loading | ok | offline | disabled
+let globalRows = [];
+let globalLoading = false;
+async function loadGlobalBoard() {
+  if (globalLoading) return;
+  if (!CLOUD_ENABLED) { globalState = 'disabled'; return; }
+  globalLoading = true;
+  globalState = 'loading';
+  try {
+    const res = await supabaseFetch('players?order=score.desc&limit=50&select=nickname,score,wave');
+    if (!res.ok) throw new Error('http ' + res.status);
+    const rows = await res.json();
+    globalRows = (Array.isArray(rows) ? rows : []).filter(function (r) { return (r.score || 0) > 0; });
+    globalState = 'ok';
+  } catch (err) {
+    globalState = 'offline';
+  }
+  globalLoading = false;
+}
+
+/* ==================== 昵称系统 ==================== */
+let playerName = '';
+try { playerName = localStorage.getItem('starwarship_nickname') || ''; } catch (err) {}
+function saveNickname(name) {
+  playerName = name;
+  try { localStorage.setItem('starwarship_nickname', name); } catch (err) {}
+}
+const nickOverlay = document.getElementById('nick-overlay');
+const nickInput = document.getElementById('nick-input');
+const nickMsg = document.getElementById('nick-msg');
+const nickBtn = document.getElementById('nick-btn');
+const nickOffline = document.getElementById('nick-offline');
+let nickOpen = false;
+let nickMode = 'create';
+function openNicknameOverlay(mode) {
+  nickMode = mode;
+  nickOpen = true;
+  nickMsg.textContent = '';
+  nickOffline.style.display = 'none';
+  nickInput.value = (mode === 'rename') ? playerName : '';
+  nickBtn.disabled = false;
+  nickOverlay.style.display = 'flex';
+  try { nickInput.focus(); } catch (err) {}
+}
+function closeNicknameOverlay() {
+  nickOpen = false;
+  nickOverlay.style.display = 'none';
+  try { canvas.focus(); } catch (err) {}
+}
+function nickFail(msg) {
+  nickMsg.textContent = msg;
+  nickBtn.disabled = false;
+}
+nickBtn.addEventListener('click', async function () {
+  const name = nickInput.value.trim();
+  if (name.length < 2 || name.length > 12) { nickFail('昵称需为 2-12 个字符'); return; }
+  nickBtn.disabled = true;
+  nickMsg.textContent = '正在检查昵称…';
+  const check = await apiCheckNickname(name);
+  if (!check.ok) {
+    nickMsg.textContent = '无法连接排行榜服务器，可离线模式继续（昵称唯一性暂不生效）';
+    nickOffline.style.display = 'inline-block';
+    nickBtn.disabled = false;
+    return;
+  }
+  if (!check.available && !(nickMode === 'rename' && name === playerName)) {
+    nickFail('该昵称已被其他玩家使用，请换一个');
+    return;
+  }
+  if (nickMode === 'rename') {
+    if (name === playerName) { closeNicknameOverlay(); return; }
+    const r = await apiRenameNickname(playerName, name);
+    if (!r.ok && r.reason === 'taken') { nickFail('该昵称已被其他玩家使用，请换一个'); return; }
+  } else {
+    const r = await apiRegisterNickname(name);
+    if (!r.ok && r.reason === 'taken') { nickFail('该昵称已被其他玩家使用，请换一个'); return; }
+  }
+  saveNickname(name);
+  closeNicknameOverlay();
+});
+nickOffline.addEventListener('click', function () {
+  const name = nickInput.value.trim();
+  if (name.length < 2 || name.length > 12) { nickFail('昵称需为 2-12 个字符'); return; }
+  saveNickname(name);
+  closeNicknameOverlay();
+});
+
+function drawMiniShip(x, y) {
+  ctx.save(); ctx.translate(x, y); ctx.scale(0.5, 0.5);
+  ctx.fillStyle = '#7fd4ff';
+  ctx.beginPath(); ctx.moveTo(0, -18); ctx.lineTo(12, 10); ctx.lineTo(-12, 10); ctx.closePath(); ctx.fill();
+  ctx.restore();
+}
+function drawHUD() {
+  ctx.save();
+  ctx.fillStyle = 'rgba(0,0,0,0.35)';
+  ctx.fillRect(0, 0, W, 34);
+  ctx.textBaseline = 'middle';
+  ctx.textAlign = 'left';
+  ctx.font = 'bold 20px "Microsoft YaHei"';
+  ctx.fillStyle = '#ffffff';
+  ctx.fillText('得分 ' + score, 14, 18);
+  ctx.font = '14px "Microsoft YaHei"';
+  ctx.fillStyle = '#9ad7ff';
+  ctx.fillText('第 ' + wave + (wave <= TOTAL_WAVES ? ' / ' + TOTAL_WAVES : '') + ' 波', 150, 19);
+  ctx.textAlign = 'right';
+  ctx.font = 'bold 14px "Microsoft YaHei"';
+  ctx.fillStyle = '#ffb347';
+  ctx.fillText('导弹 ×' + player.missileAmmo, W - 170, 19);
+  if (player.shield) {
+    ctx.fillStyle = '#7ef0ff';
+    ctx.fillText('护盾', W - 96, 19);
+  }
+  for (let i = 0; i < player.maxHp; i++) {
+    const x = W - 28 - i * 28;
+    if (i < player.hp) drawMiniShip(x, 17);
+    else {
+      ctx.strokeStyle = 'rgba(255,255,255,0.3)'; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.arc(x, 17, 7, 0, Math.PI * 2); ctx.stroke();
+    }
+  }
+  const boss = enemies.find(e => e.type === 'boss' && !e.dead);
+  if (boss) {
+    const bw = 300, bx = (W - bw) / 2, by = 46;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+    ctx.font = 'bold 13px "Microsoft YaHei"';
+    ctx.fillStyle = '#ffd76a';
+    ctx.fillText('星际母舰', W / 2, by - 8);
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    ctx.fillRect(bx - 4, by - 4, bw + 8, 18);
+    ctx.strokeStyle = '#e06b6b'; ctx.lineWidth = 1;
+    ctx.strokeRect(bx - 4, by - 4, bw + 8, 18);
+    ctx.fillStyle = '#c0392b';
+    ctx.fillRect(bx, by, bw * clamp(boss.hp / boss.maxHp, 0, 1), 10);
+  }
+  ctx.textAlign = 'left';
+  ctx.font = '12px "Microsoft YaHei"';
+  ctx.fillStyle = 'rgba(255,255,255,0.45)';
+  ctx.fillText('P 暂停 · M 静音' + (muted ? '（已静音）' : ''), 14, H - 14);
+  ctx.restore();
+}
+function drawWaveBanner() {
+  const a = clamp(waveBanner / 0.4, 0, 1);
+  ctx.globalAlpha = a;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.font = 'bold 40px "Microsoft YaHei"';
+  ctx.fillStyle = '#ffd76a';
+  ctx.shadowColor = '#ffb347'; ctx.shadowBlur = 20;
+  ctx.fillText(waveBannerText, W / 2, H * 0.3);
+  ctx.shadowBlur = 0;
+  ctx.globalAlpha = 1;
+}
+function drawMenu() {
+  ctx.fillStyle = 'rgba(3,5,15,0.55)';
+  ctx.fillRect(0, 0, W, H);
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.save();
+  ctx.translate(W / 2, 112 + Math.sin(menuT * 2) * 4);
+  drawPlayerShip(0, 0, 0, false, 1);
+  ctx.restore();
+  ctx.shadowColor = '#4ec2ff'; ctx.shadowBlur = 30;
+  ctx.font = 'bold 68px "Microsoft YaHei"';
+  ctx.fillStyle = '#dff6ff';
+  ctx.fillText('星 空 战 舰', W / 2, 175);
+  ctx.shadowBlur = 0;
+  ctx.font = '18px "Microsoft YaHei"';
+  ctx.fillStyle = '#9ad7ff';
+  ctx.fillText('在浩瀚宇宙中，驾驶战舰迎击敌方舰队', W / 2, 215);
+  ctx.font = '15px "Microsoft YaHei"';
+  ctx.fillStyle = '#cfe8ff';
+  const lines = [
+    '移动：W A S D / 方向键 / 鼠标',
+    '射击：空格 / 鼠标左键（按住连发）',
+    '导弹：X 键 / 鼠标右键（自动追踪）',
+    '暂停：P　　静音：M',
+  ];
+  lines.forEach((l, i) => ctx.fillText(l, W / 2, 300 + i * 28));
+  ctx.font = '13px "Microsoft YaHei"';
+  ctx.fillStyle = '#8fb6d9';
+  ctx.fillText('道具：W 武器升级 · M 导弹补给 · S 护盾 · H 生命', W / 2, 424);
+  ctx.font = '14px "Microsoft YaHei"';
+  ctx.fillStyle = '#cfe8ff';
+  ctx.fillText('玩家：' + playerName + '　按 N 修改昵称', W / 2, 454);
+  ctx.font = '13px "Microsoft YaHei"';
+  ctx.fillStyle = '#8fb6d9';
+  ctx.fillText('最高分：' + highScore, W / 2, 482);
+  if (Math.sin(time * 3) > -0.3) {
+    ctx.font = 'bold 26px "Microsoft YaHei"';
+    ctx.fillStyle = '#7ef0ff';
+    ctx.fillText('按 回车 / 点击 开始游戏', W / 2, 515);
+  }
+  const bx = W / 2 - 85, by = 545, bw = 170, bh = 46;
+  ctx.fillStyle = 'rgba(40,90,160,0.6)';
+  ctx.strokeStyle = '#7fd4ff';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  if (ctx.roundRect) ctx.roundRect(bx, by, bw, bh, 10); else ctx.rect(bx, by, bw, bh);
+  ctx.fill(); ctx.stroke();
+  ctx.font = 'bold 20px "Microsoft YaHei"';
+  ctx.fillStyle = '#eaf7ff';
+  ctx.fillText('排 行 榜', W / 2, by + bh / 2 + 1);
+  ctx.font = '12px "Microsoft YaHei"';
+  ctx.fillStyle = '#8fb6d9';
+  ctx.fillText('或按 T 键打开', W / 2, by + bh + 15);
+}
+function drawGameOver() {
+  ctx.fillStyle = 'rgba(3,5,15,0.6)';
+  ctx.fillRect(0, 0, W, H);
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.font = 'bold 56px "Microsoft YaHei"';
+  ctx.fillStyle = '#ff7a6b';
+  ctx.fillText('游 戏 结 束', W / 2, H / 2 - 90);
+  ctx.font = '22px "Microsoft YaHei"';
+  ctx.fillStyle = '#ffffff';
+  ctx.fillText('最终得分：' + score, W / 2, H / 2 - 20);
+  ctx.fillStyle = '#9ad7ff';
+  ctx.fillText('抵达波次：第 ' + wave + ' 波', W / 2, H / 2 + 20);
+  ctx.fillStyle = '#ffd76a';
+  if (lastScoreRank >= 0) ctx.fillText('分数排名：第 ' + (lastScoreRank + 1) + ' 名', W / 2, H / 2 + 55);
+  ctx.fillStyle = '#8fb6d9';
+  ctx.fillText('最高分：' + highScore, W / 2, H / 2 + 85);
+  if (Math.sin(time * 3) > -0.3) {
+    ctx.font = 'bold 22px "Microsoft YaHei"';
+    ctx.fillStyle = '#7ef0ff';
+    ctx.fillText('按 回车 / 点击 重新开始', W / 2, H / 2 + 125);
+  }
+}
+function drawPause() {
+  ctx.fillStyle = 'rgba(3,5,15,0.5)';
+  ctx.fillRect(0, 0, W, H);
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.font = 'bold 40px "Microsoft YaHei"';
+  ctx.fillStyle = '#ffffff';
+  ctx.fillText('已 暂 停', W / 2, H / 2 - 20);
+  ctx.font = '18px "Microsoft YaHei"';
+  ctx.fillStyle = '#9ad7ff';
+  ctx.fillText('按 P 继续', W / 2, H / 2 + 30);
+}
+function drawBoardColumn(title, list, cx, mode) {
+  ctx.fillStyle = 'rgba(20,32,66,0.55)';
+  ctx.strokeStyle = 'rgba(120,180,255,0.25)';
+  ctx.lineWidth = 1.5;
+  ctx.fillRect(cx - 170, 152, 340, 320);
+  ctx.strokeRect(cx - 170, 152, 340, 320);
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.font = 'bold 22px "Microsoft YaHei"';
+  ctx.fillStyle = '#ffd76a';
+  ctx.fillText(title, cx, 180);
+  ctx.strokeStyle = 'rgba(255,215,106,0.35)';
+  ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(cx - 150, 202); ctx.lineTo(cx + 150, 202); ctx.stroke();
+  if (list.length === 0) {
+    ctx.font = '15px "Microsoft YaHei"';
+    ctx.fillStyle = '#8fb6d9';
+    ctx.fillText('暂无记录，快去挑战吧！', cx, 300);
+    return;
+  }
+  const colors = ['#ffd76a', '#cfe8ff', '#ffb08a', '#8fb6d9', '#7a93b5'];
+  ctx.textAlign = 'left';
+  for (let i = 0; i < Math.min(5, list.length); i++) {
+    const item = list[i];
+    const y = 237 + i * 42;
+    ctx.font = 'bold 18px "Microsoft YaHei"';
+    ctx.fillStyle = colors[i];
+    ctx.fillText((i + 1) + '.', cx - 145, y);
+    ctx.font = '16px "Microsoft YaHei"';
+    ctx.fillStyle = '#ffffff';
+    if (mode === 1) {
+      ctx.fillText('得分 ' + item.score, cx - 100, y);
+      ctx.font = '13px "Microsoft YaHei"';
+      ctx.fillStyle = '#9ad7ff';
+      ctx.fillText('第 ' + item.wave + ' 波', cx + 55, y);
+    } else {
+      ctx.fillText('用时 ' + fmtTime(item.time), cx - 100, y);
+      ctx.font = '13px "Microsoft YaHei"';
+      ctx.fillStyle = '#9ad7ff';
+      ctx.fillText('得分 ' + item.score, cx + 55, y);
+    }
+  }
+}
+function drawBoardTab(label, cx) {
+  const y = 128, w = 200, h = 36;
+  const active = (boardTab === (label === '全体排行榜' ? 'global' : 'personal'));
+  ctx.fillStyle = active ? 'rgba(64,150,230,0.55)' : 'rgba(20,32,66,0.5)';
+  ctx.strokeStyle = active ? '#7fd4ff' : 'rgba(120,180,255,0.25)';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  if (ctx.roundRect) ctx.roundRect(cx - w / 2, y, w, h, 8); else ctx.rect(cx - w / 2, y, w, h);
+  ctx.fill(); ctx.stroke();
+  ctx.font = 'bold 17px "Microsoft YaHei"';
+  ctx.fillStyle = active ? '#ffffff' : '#9ab8d8';
+  ctx.fillText(label, cx, y + h / 2 + 1);
+}
+function drawGlobalBoard() {
+  const msgY = 330;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.font = '15px "Microsoft YaHei"';
+  if (globalState === 'disabled') {
+    ctx.fillStyle = '#8fb6d9';
+    ctx.fillText('未配置云端排行榜（当前为本地模式）', W / 2, msgY);
+    ctx.font = '13px "Microsoft YaHei"';
+    ctx.fillStyle = '#6d8db0';
+    ctx.fillText('按 config.js 中的说明填写 Supabase 配置后即可启用', W / 2, msgY + 28);
+    return;
+  }
+  if (globalState === 'loading') {
+    ctx.fillStyle = '#9ad7ff';
+    ctx.fillText('加载中…', W / 2, msgY);
+    return;
+  }
+  if (globalState === 'offline') {
+    ctx.fillStyle = '#ffb08a';
+    ctx.fillText('无法连接排行榜服务器，请稍后重试', W / 2, msgY);
+    return;
+  }
+  if (globalRows.length === 0) {
+    ctx.fillStyle = '#9ad7ff';
+    ctx.fillText('还没有玩家上榜，快去创造记录！', W / 2, msgY);
+    return;
+  }
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.font = 'bold 14px "Microsoft YaHei"';
+  ctx.fillStyle = '#9ad7ff';
+  ctx.fillText('排名', 210, 190);
+  ctx.fillText('昵称', 330, 190);
+  ctx.textAlign = 'right';
+  ctx.fillText('得分', 750, 190);
+  ctx.strokeStyle = 'rgba(255,215,106,0.35)';
+  ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(190, 205); ctx.lineTo(770, 205); ctx.stroke();
+  const myIdx = globalRows.findIndex(function (r) { return r.nickname === playerName; });
+  const showN = Math.min(10, globalRows.length);
+  for (let i = 0; i < showN; i++) {
+    const r = globalRows[i];
+    const y = 232 + i * 42;
+    const mine = (i === myIdx);
+    ctx.textAlign = 'left';
+    ctx.font = 'bold 18px "Microsoft YaHei"';
+    ctx.fillStyle = (i < 3) ? ['#ffd76a', '#cfe8ff', '#ffb08a'][i] : (mine ? '#7ef0ff' : '#ffffff');
+    ctx.fillText((i + 1) + '.', 210, y);
+    ctx.font = '16px "Microsoft YaHei"';
+    ctx.fillStyle = mine ? '#7ef0ff' : '#ffffff';
+    let nick = r.nickname || '未知玩家';
+    if (nick.length > 10) nick = nick.slice(0, 10) + '…';
+    ctx.fillText(nick, 330, y);
+    ctx.textAlign = 'right';
+    ctx.font = 'bold 16px "Microsoft YaHei"';
+    ctx.fillStyle = '#ffd76a';
+    ctx.fillText(String(r.score), 750, y);
+  }
+  ctx.textAlign = 'center';
+  if (myIdx < 0) {
+    ctx.font = '13px "Microsoft YaHei"';
+    ctx.fillStyle = '#8fb6d9';
+    ctx.fillText('当前不在前 50 名，继续加油！', W / 2, 628);
+  } else {
+    ctx.font = 'bold 15px "Microsoft YaHei"';
+    ctx.fillStyle = '#7ef0ff';
+    ctx.fillText('我的排名：第 ' + (myIdx + 1) + ' 名', W / 2, 628);
+  }
+}
+function drawPersonalBoard() {
+  drawBoardColumn('个人分数排行', scoreBoard, 240, 1);
+  drawBoardColumn('个人通关时间排行', timeBoard, 720, 2);
+}
+function drawBoard() {
+  ctx.fillStyle = 'rgba(3,5,15,0.72)';
+  ctx.fillRect(0, 0, W, H);
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.shadowColor = '#4ec2ff'; ctx.shadowBlur = 24;
+  ctx.font = 'bold 40px "Microsoft YaHei"';
+  ctx.fillStyle = '#dff6ff';
+  ctx.fillText('排 行 榜', W / 2, 46);
+  ctx.shadowBlur = 0;
+  ctx.font = '13px "Microsoft YaHei"';
+  ctx.fillStyle = '#9ad7ff';
+  ctx.fillText('按 T / ESC 返回 · 点击或按 1 / 2 切换榜单', W / 2, 80);
+  if (playerName) {
+    ctx.font = '12px "Microsoft YaHei"';
+    ctx.fillStyle = '#8fb6d9';
+    ctx.fillText('当前玩家：' + playerName, W / 2, 102);
+  }
+  drawBoardTab('全体排行榜', W / 2 - 100);
+  drawBoardTab('个人排行榜', W / 2 + 100);
+  if (boardTab === 'global') drawGlobalBoard();
+  else drawPersonalBoard();
+}
+function drawWin() {
+  ctx.fillStyle = 'rgba(3,5,15,0.55)';
+  ctx.fillRect(0, 0, W, H);
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.shadowColor = '#ffd76a'; ctx.shadowBlur = 28;
+  ctx.font = 'bold 54px "Microsoft YaHei"';
+  ctx.fillStyle = '#ffe9a8';
+  ctx.fillText('恭 喜 通 关！', W / 2, H / 2 - 110);
+  ctx.shadowBlur = 0;
+  ctx.font = '22px "Microsoft YaHei"';
+  ctx.fillStyle = '#ffffff';
+  ctx.fillText('通关用时：' + fmtTime(winTimeSec), W / 2, H / 2 - 40);
+  ctx.fillStyle = '#9ad7ff';
+  if (lastTimeRank >= 0) ctx.fillText('通关时间排名：第 ' + (lastTimeRank + 1) + ' 名', W / 2, H / 2);
+  ctx.fillStyle = '#ffd76a';
+  ctx.fillText('本局得分：' + score, W / 2, H / 2 + 45);
+  if (Math.sin(time * 3) > -0.3) {
+    ctx.font = 'bold 20px "Microsoft YaHei"';
+    ctx.fillStyle = '#7ef0ff';
+    ctx.fillText('按 回车 / 点击 继续无尽模式', W / 2, H / 2 + 120);
+  }
+  ctx.font = '14px "Microsoft YaHei"';
+  ctx.fillStyle = '#8fb6d9';
+  ctx.fillText('无尽模式下不再记录通关时间，可继续冲击更高分', W / 2, H / 2 + 150);
+}
+
+/* ==================== 主循环 ==================== */
+let state = 'menu';
+let paused = false;
+let score = 0;
+let time = 0;
+let menuT = 0;
+let shake = 0, flash = 0;
+let lastT = performance.now() / 1000;
+let startTime = Date.now();
+let cleared = false;
+let lastScoreRank = -1;
+let lastTimeRank = -1;
+let winTimeSec = 0;
+let prevState = 'menu';
+let prevPaused = false;
+let boardTab = 'global';
+
+function update(dt) {
+  time += dt;
+  shake = Math.max(0, shake - dt * 40);
+  flash = Math.max(0, flash - dt * 1.5);
+  updateStars(dt, state === 'playing' ? 1 : 0.5);
+  updateParticles(dt);
+  updateFloaters(dt);
+  if (state === 'menu' || state === 'board' || state === 'win') { menuT += dt; return; }
+  if (state === 'gameover') return;
+  if (paused) return;
+  updateWaves(dt);
+  updatePlayer(dt);
+  updateBullets(dt);
+  updateMissiles(dt);
+  updateEnemies(dt);
+  updatePowerups(dt);
+  checkCollisions();
+  waveBanner = Math.max(0, waveBanner - dt);
+}
+
+function draw() {
+  drawBackground();
+  ctx.save();
+  if (shake > 0.5) ctx.translate(rand(-shake, shake) * 0.6, rand(-shake, shake) * 0.6);
+  drawStars();
+  drawPowerups();
+  drawMissiles();
+  drawEnemies();
+  drawPlayer();
+  drawParticles();
+  drawBullets();
+  drawFloaters();
+  ctx.restore();
+  if (state === 'playing' || state === 'gameover') drawHUD();
+  if (waveBanner > 0 && state !== 'board') drawWaveBanner();
+  if (state === 'menu') drawMenu();
+  else if (state === 'board') drawBoard();
+  else if (state === 'gameover') drawGameOver();
+  else if (state === 'win') drawWin();
+  if (paused && state === 'playing') drawPause();
+  if (flash > 0) {
+    ctx.fillStyle = 'rgba(255,60,60,' + (flash * 0.5).toFixed(2) + ')';
+    ctx.fillRect(0, 0, W, H);
+  }
+}
+
+function loop(now) {
+  requestAnimationFrame(loop);
+  const t = now / 1000;
+  const dt = Math.min(0.033, Math.max(0, t - lastT));
+  lastT = t;
+  update(dt);
+  draw();
+}
+canvas.focus();
+if (!playerName) openNicknameOverlay('create');
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
