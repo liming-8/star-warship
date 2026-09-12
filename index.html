@@ -154,11 +154,11 @@ canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
 /* ==================== 移动端触摸操控（不影响桌面） ==================== */
 let lastTouchTime = -1000;
-const JOY_R = 60;
+const JOY_R = 80;
 const JOY = { active: false, id: -1, ox: 0, oy: 0, x: 0, y: 0 };
 let joyVec = { x: 0, y: 0 };
 let touchFire = false, touchFireId = -1, touchMissileId = -1;
-const PB_BTN = { cx: W - 52, cy: 52, r: 24 };          // 暂停/继续
+const PB_BTN = { cx: W - 52, cy: 92, r: 26 };          // 暂停/继续
 const MSL_BTN = { cx: W - 85, cy: H - 215, r: 42 };    // 导弹
 const FIRE_BTN = { cx: W - 85, cy: H - 90, r: 50 };    // 射击
 const NICK_BTN = { x: W / 2 - 75, y: 30, w: 150, h: 34 }; // 修改昵称
@@ -259,7 +259,7 @@ function drawTouchUI() {
     ctx.fillStyle = 'rgba(127,212,255,0.15)';
     ctx.beginPath(); ctx.arc(JOY.ox, JOY.oy, JOY_R, 0, Math.PI * 2); ctx.fill();
     ctx.fillStyle = 'rgba(127,212,255,0.6)';
-    ctx.beginPath(); ctx.arc(JOY.x, JOY.y, 22, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(JOY.x, JOY.y, 32, 0, Math.PI * 2); ctx.fill();
   }
 }
 const rotateHint = document.getElementById('rotate-hint');
