@@ -87,16 +87,18 @@ window.addEventListener('keydown', (e) => {
     if (state === 'menu' || state === 'gameover') startGame();
     else if (state === 'win') { state = 'playing'; nextWave(); }
     else if (state === 'board') { state = prevState; if (state === 'playing') paused = prevPaused; }
+    else if (state === 'help') { state = prevState; if (state === 'playing') paused = prevPaused; }
   }
   if (e.code === 'KeyP') { if (state === 'playing') paused = !paused; }
   if (e.code === 'KeyM') muted = !muted;
   if (e.code === 'KeyN') { if (state === 'menu') openNicknameOverlay('rename'); }
   if (e.code === 'KeyT') {
     if (state === 'board') { state = prevState; if (state === 'playing') paused = prevPaused; }
+    else if (state === 'help') { state = prevState; if (state === 'playing') paused = prevPaused; }
     else { prevPaused = paused; prevState = state; if (state === 'playing') paused = true; state = 'board'; if (boardTab === 'global') loadGlobalBoard(); }
   }
   if (e.code === 'Escape') {
-    if (state === 'board') { state = prevState; if (state === 'playing') paused = prevPaused; }
+    if (state === 'board' || state === 'help') { state = prevState; if (state === 'playing') paused = prevPaused; }
   }
   if (e.code === 'Digit1') { if (state === 'board') { boardTab = 'global'; loadGlobalBoard(); } }
   if (e.code === 'Digit2') { if (state === 'board') boardTab = 'personal'; }
@@ -111,14 +113,23 @@ canvas.addEventListener('pointermove', (e) => {
 canvas.addEventListener('pointerdown', (e) => {
   initAudio();
   const p = toLogical(e); mouse.x = p.x; mouse.y = p.y; lastMouseMove = time;
-  if (e.button === 2) { mouse.rdown = true; if (state === 'playing') tryFireMissile(); }
+  if (e.button === 2) { mouse.rdown = true; if (state === 'playing' && !paused) tryFireMissile(); }
   else { mouse.down = true; }
+  if (state === 'help') { state = prevState; if (state === 'playing') paused = prevPaused; return; }
   if (state === 'menu') {
-    const p = toLogical(e);
+    if (hitCornerButton(BTN_LEADER, p)) { prevState = 'menu'; state = 'board'; if (boardTab === 'global') loadGlobalBoard(); return; }
+    if (hitCornerButton(BTN_HELP, p)) { prevState = 'menu'; state = 'help'; return; }
     const bx = W / 2 - 85, by = 545, bw = 170, bh = 46;
-    if (p.x >= bx && p.x <= bx + bw && p.y >= by && p.y <= by + bh) state = 'board';
+    if (p.x >= bx && p.x <= bx + bw && p.y >= by && p.y <= by + bh) { prevState = 'menu'; state = 'board'; if (boardTab === 'global') loadGlobalBoard(); }
     else startGame();
-  } else if (state === 'gameover') startGame();
+  } else if (state === 'gameover') {
+    if (hitCornerButton(BTN_LEADER, p)) { prevState = 'gameover'; state = 'board'; if (boardTab === 'global') loadGlobalBoard(); return; }
+    if (hitCornerButton(BTN_HELP, p)) { prevState = 'gameover'; state = 'help'; return; }
+    startGame();
+  } else if (state === 'playing' && paused) {
+    if (hitCornerButton(BTN_LEADER, p)) { prevPaused = true; prevState = 'playing'; state = 'board'; if (boardTab === 'global') loadGlobalBoard(); return; }
+    if (hitCornerButton(BTN_HELP, p)) { prevPaused = true; prevState = 'playing'; state = 'help'; return; }
+  }
   else if (state === 'board') {
     const pb = toLogical(e);
     const y = 128, h = 36, w = 200;
@@ -1144,6 +1155,7 @@ function drawMenu() {
   ctx.font = '12px "Microsoft YaHei"';
   ctx.fillStyle = '#8fb6d9';
   ctx.fillText('或按 T 键打开', W / 2, by + bh + 15);
+  drawCornerButtons();
 }
 function drawGameOver() {
   ctx.fillStyle = 'rgba(3,5,15,0.6)';
@@ -1166,6 +1178,7 @@ function drawGameOver() {
     ctx.fillStyle = '#7ef0ff';
     ctx.fillText('按 回车 / 点击 重新开始', W / 2, H / 2 + 125);
   }
+  drawCornerButtons();
 }
 function drawPause() {
   ctx.fillStyle = 'rgba(3,5,15,0.5)';
@@ -1177,6 +1190,86 @@ function drawPause() {
   ctx.font = '18px "Microsoft YaHei"';
   ctx.fillStyle = '#9ad7ff';
   ctx.fillText('按 P 继续', W / 2, H / 2 + 30);
+  drawCornerButtons();
+}
+
+/* ==================== 角标按键（排行榜 / 游戏说明） ==================== */
+const CORNER_BTN_W = 150, CORNER_BTN_H = 36, CORNER_BTN_Y = H - 56;
+const BTN_LEADER = 20;
+const BTN_HELP = W - 20 - CORNER_BTN_W;
+function drawCornerButton(label, left, color) {
+  ctx.fillStyle = 'rgba(24,40,80,0.78)';
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  if (ctx.roundRect) ctx.roundRect(left, CORNER_BTN_Y, CORNER_BTN_W, CORNER_BTN_H, 8); else ctx.rect(left, CORNER_BTN_Y, CORNER_BTN_W, CORNER_BTN_H);
+  ctx.fill(); ctx.stroke();
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.font = 'bold 16px "Microsoft YaHei"';
+  ctx.fillStyle = '#eaf7ff';
+  ctx.fillText(label, left + CORNER_BTN_W / 2, CORNER_BTN_Y + CORNER_BTN_H / 2 + 1);
+}
+function drawCornerButtons() {
+  drawCornerButton('排 行 榜', BTN_LEADER, '#7fd4ff');
+  drawCornerButton('游戏说明', BTN_HELP, '#ffd76a');
+}
+function hitCornerButton(left, p) {
+  return p.x >= left && p.x <= left + CORNER_BTN_W && p.y >= CORNER_BTN_Y && p.y <= CORNER_BTN_Y + CORNER_BTN_H;
+}
+
+/* ==================== 游戏说明 ==================== */
+function drawHelp() {
+  ctx.fillStyle = 'rgba(3,5,15,0.72)';
+  ctx.fillRect(0, 0, W, H);
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.shadowColor = '#ffd76a'; ctx.shadowBlur = 24;
+  ctx.font = 'bold 40px "Microsoft YaHei"';
+  ctx.fillStyle = '#ffe9a8';
+  ctx.fillText('游 戏 说 明', W / 2, 46);
+  ctx.shadowBlur = 0;
+  ctx.font = '13px "Microsoft YaHei"';
+  ctx.fillStyle = '#9ad7ff';
+  ctx.fillText('按 ESC / T / 点击 返回', W / 2, 80);
+  drawHelpPanel('操作按键', [
+    '移动：W A S D / 方向键',
+    '　　　或移动鼠标直接控制',
+    '射击：空格 / 鼠标左键',
+    '　　　（按住可连发）',
+    '导弹：X / 鼠标右键',
+    '　　　（自动追踪 + 范围爆炸）',
+    '暂停：P　　　静音：M',
+    '排行榜：T（游戏中按 T 暂停打开）',
+    '修改昵称：N（主菜单）',
+  ], 240);
+  drawHelpPanel('游戏内容', [
+    '敌人：侦察舰 / 护卫舰',
+    '　　　战列舰 / 星际母舰',
+    'Boss：每 5 波出现一艘',
+    '道具：W 武器升级（最高4级）',
+    '　　　M 导弹补给 · S 护盾',
+    '　　　H 生命 +1',
+    '通关：通过第 10 波',
+    '　　　通关记录最快用时',
+    '成绩自动上传全体排行榜',
+  ], 720);
+}
+function drawHelpPanel(title, lines, cx) {
+  ctx.fillStyle = 'rgba(20,32,66,0.55)';
+  ctx.strokeStyle = 'rgba(120,180,255,0.25)';
+  ctx.lineWidth = 1.5;
+  ctx.fillRect(cx - 170, 110, 340, 470);
+  ctx.strokeRect(cx - 170, 110, 340, 470);
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.font = 'bold 22px "Microsoft YaHei"';
+  ctx.fillStyle = '#ffd76a';
+  ctx.fillText(title, cx, 142);
+  ctx.strokeStyle = 'rgba(255,215,106,0.35)';
+  ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(cx - 150, 164); ctx.lineTo(cx + 150, 164); ctx.stroke();
+  ctx.font = '14px "Microsoft YaHei"';
+  ctx.fillStyle = '#cfe8ff';
+  ctx.textAlign = 'left';
+  lines.forEach((l, i) => ctx.fillText(l, cx - 150, 192 + i * 31));
 }
 function drawBoardColumn(title, list, cx, mode) {
   ctx.fillStyle = 'rgba(20,32,66,0.55)';
@@ -1407,6 +1500,7 @@ function draw() {
   if (state === 'playing' || state === 'gameover') drawHUD();
   if (waveBanner > 0 && state !== 'board') drawWaveBanner();
   if (state === 'menu') drawMenu();
+  else if (state === 'help') drawHelp();
   else if (state === 'board') drawBoard();
   else if (state === 'gameover') drawGameOver();
   else if (state === 'win') drawWin();
