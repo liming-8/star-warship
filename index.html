@@ -45,11 +45,33 @@ const GAME_CONFIG = (typeof window !== 'undefined' && window.GAME_CONFIG) ? wind
 /* ==================== 基础设置 ==================== */
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
-const W = 960, H = 640;
+let W = 960, H = 640;
 const isTouch = !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches) || ('ontouchstart' in window && navigator.maxTouchPoints > 0) || new URLSearchParams(location.search).has('touch');
 const PFX = isTouch ? 0.55 : 1;   // 移动端粒子数量系数
+const rand = (a, b) => a + Math.random() * (b - a);
+const randInt = (a, b) => Math.floor(rand(a, b + 1));
+const clamp = (v, a, b) => (v < a ? a : (v > b ? b : v));
+const stars = [];
+let PB_BTN = { cx: W - 52, cy: 92, r: 26 };          // 暂停/继续（随 W 自适应）
+let MSL_BTN = { cx: W - 85, cy: H - 215, r: 42 };    // 导弹
+let FIRE_BTN = { cx: W - 85, cy: H - 90, r: 50 };    // 射击
+let NICK_BTN = { x: W / 2 - 75, y: 30, w: 150, h: 34 }; // 修改昵称
+const CORNER_BTN_W = 150, CORNER_BTN_H = 36, CORNER_BTN_Y = H - 56;
+const BTN_LEADER = 20;
+let BTN_HELP = W - 20 - CORNER_BTN_W;
 
+function applyTouchLayout() {
+  if (!isTouch) return;
+  const aspect = window.innerWidth / window.innerHeight;
+  const nw = Math.max(960, Math.min(1920, Math.round(H * aspect)));
+  if (nw !== W) {
+    W = nw; initStars();
+    PB_BTN.cx = W - 52; MSL_BTN.cx = W - 85; FIRE_BTN.cx = W - 85;
+    NICK_BTN.x = W / 2 - 75; BTN_HELP = W - 20 - CORNER_BTN_W;
+  }
+}
 function resizeCanvas() {
+  applyTouchLayout();
   const sw = window.innerWidth, sh = window.innerHeight;
   const s = Math.min(sw / W, sh / H);
   canvas.style.width = (W * s) + 'px';
@@ -64,9 +86,6 @@ resizeCanvas();
 window.addEventListener('resize', resizeCanvas);
 
 /* ==================== 工具函数 ==================== */
-const rand = (a, b) => a + Math.random() * (b - a);
-const randInt = (a, b) => Math.floor(rand(a, b + 1));
-const clamp = (v, a, b) => (v < a ? a : (v > b ? b : v));
 const distSq = (ax, ay, bx, by) => { const dx = ax - bx, dy = ay - by; return dx * dx + dy * dy; };
 
 /* ==================== 输入 ==================== */
@@ -164,10 +183,7 @@ const JOY_R = 80;
 const JOY = { active: false, id: -1, ox: 0, oy: 0, x: 0, y: 0 };
 let joyVec = { x: 0, y: 0 };
 let touchFire = false, touchFireId = -1, touchMissileId = -1;
-const PB_BTN = { cx: W - 52, cy: 92, r: 26 };          // 暂停/继续
-const MSL_BTN = { cx: W - 85, cy: H - 215, r: 42 };    // 导弹
-const FIRE_BTN = { cx: W - 85, cy: H - 90, r: 50 };    // 射击
-const NICK_BTN = { x: W / 2 - 75, y: 30, w: 150, h: 34 }; // 修改昵称
+// (触摸按钮常量已上移，随 W 自适应)
 function hitCircle(b, p) { return distSq(p.x, p.y, b.cx, b.cy) <= b.r * b.r; }
 function hitRectButton(b, p) { return p.x >= b.x && p.x <= b.x + b.w && p.y >= b.y && p.y <= b.y + b.h; }
 
@@ -875,8 +891,8 @@ function bgmSetDuck(duck) {
 }
 
 /* ==================== 星空背景 ==================== */
-const stars = [];
 function initStars() {
+  stars.length = 0;
   for (let i = 0; i < 140; i++) stars.push({ x: rand(0, W), y: rand(0, H), z: rand(0.25, 1), tw: rand(0, Math.PI * 2) });
 }
 initStars();
@@ -1881,9 +1897,7 @@ function drawPause() {
 }
 
 /* ==================== 角标按键（排行榜 / 游戏说明） ==================== */
-const CORNER_BTN_W = 150, CORNER_BTN_H = 36, CORNER_BTN_Y = H - 56;
-const BTN_LEADER = 20;
-const BTN_HELP = W - 20 - CORNER_BTN_W;
+// (角标按钮常量已上移，随 W 自适应)
 function drawCornerButton(label, left, color) {
   ctx.fillStyle = 'rgba(24,40,80,0.78)';
   ctx.strokeStyle = color;
@@ -1913,7 +1927,7 @@ function drawHelp() {
   ctx.fillStyle = '#03050f';
   ctx.fillRect(0, 0, W, H);
   if (helpImgLoaded && helpImg.width > 0) {
-    const scale = Math.max(W / helpImg.width, H / helpImg.height);
+    const scale = (isTouch ? Math.min : Math.max)(W / helpImg.width, H / helpImg.height);
     const dw = helpImg.width * scale, dh = helpImg.height * scale;
     ctx.drawImage(helpImg, (W - dw) / 2, (H - dh) / 2, dw, dh);
   } else {
