@@ -36,6 +36,7 @@ canvas:focus { outline: none; }
   </div>
 </div>
 <div id="rotate-hint" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;width:100%;height:100%;z-index:98;background:#05060f;color:#9ad7ff;font-family:'Microsoft YaHei',sans-serif;flex-direction:column;align-items:center;justify-content:center;text-align:center;"><div style="font-size:21px;letter-spacing:4px;line-height:1.5;">请将手机旋转至横屏游玩</div><div style="margin-top:22px;font-size:14px;color:#6f94b8;letter-spacing:1px;">横屏后自动进入游戏</div></div>
+<div id="mobile-ui" style="display:none;position:fixed;left:0;top:0;width:100%;height:100%;z-index:60;pointer-events:none;touch-action:none;"><div id="joy-base" style="display:none;position:absolute;border-radius:50%;border:2px solid rgba(127,212,255,0.45);background:rgba(127,212,255,0.15);"></div><div id="joy-knob" style="display:none;position:absolute;border-radius:50%;background:rgba(127,212,255,0.6);"></div><div id="btn-pause" style="position:absolute;border-radius:50%;background:rgba(24,40,80,0.72);border:1.5px solid #7fd4ff;color:#eaf7ff;font-family:'Microsoft YaHei',sans-serif;display:flex;align-items:center;justify-content:center;font-weight:bold;font-size:20px;pointer-events:auto;touch-action:none;user-select:none;-webkit-user-select:none;">Ⅱ</div><div id="btn-missile" style="position:absolute;border-radius:50%;background:rgba(24,40,80,0.72);border:1.5px solid #ffb347;color:#eaf7ff;font-family:'Microsoft YaHei',sans-serif;display:flex;align-items:center;justify-content:center;font-weight:bold;font-size:14px;pointer-events:auto;touch-action:none;user-select:none;-webkit-user-select:none;">导弹</div><div id="btn-fire" style="position:absolute;border-radius:50%;background:rgba(24,40,80,0.72);border:1.5px solid #7ef0ff;color:#eaf7ff;font-family:'Microsoft YaHei',sans-serif;display:flex;align-items:center;justify-content:center;font-weight:bold;font-size:14px;pointer-events:auto;touch-action:none;user-select:none;-webkit-user-select:none;">射击</div></div>
 <script src="config.js"></script>
 <script>
 'use strict';
@@ -45,33 +46,19 @@ const GAME_CONFIG = (typeof window !== 'undefined' && window.GAME_CONFIG) ? wind
 /* ==================== 基础设置 ==================== */
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
-let W = 960, H = 640;
+const W = 960, H = 640;
 const isTouch = !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches) || ('ontouchstart' in window && navigator.maxTouchPoints > 0) || new URLSearchParams(location.search).has('touch');
 const PFX = isTouch ? 0.55 : 1;   // 移动端粒子数量系数
 const rand = (a, b) => a + Math.random() * (b - a);
 const randInt = (a, b) => Math.floor(rand(a, b + 1));
 const clamp = (v, a, b) => (v < a ? a : (v > b ? b : v));
 const stars = [];
-let PB_BTN = { cx: W - 52, cy: 92, r: 26 };          // 暂停/继续（随 W 自适应）
-let MSL_BTN = { cx: W - 85, cy: H - 215, r: 42 };    // 导弹
-let FIRE_BTN = { cx: W - 85, cy: H - 90, r: 50 };    // 射击
-let NICK_BTN = { x: W / 2 - 75, y: 30, w: 150, h: 34 }; // 修改昵称
+const NICK_BTN = { x: W / 2 - 75, y: 30, w: 150, h: 34 }; // 修改昵称
 const CORNER_BTN_W = 150, CORNER_BTN_H = 36, CORNER_BTN_Y = H - 56;
 const BTN_LEADER = 20;
-let BTN_HELP = W - 20 - CORNER_BTN_W;
+const BTN_HELP = W - 20 - CORNER_BTN_W;
 
-function applyTouchLayout() {
-  if (!isTouch) return;
-  const aspect = window.innerWidth / window.innerHeight;
-  const nw = Math.max(960, Math.min(1920, Math.round(H * aspect)));
-  if (nw !== W) {
-    W = nw; initStars();
-    PB_BTN.cx = W - 52; MSL_BTN.cx = W - 85; FIRE_BTN.cx = W - 85;
-    NICK_BTN.x = W / 2 - 75; BTN_HELP = W - 20 - CORNER_BTN_W;
-  }
-}
 function resizeCanvas() {
-  applyTouchLayout();
   const sw = window.innerWidth, sh = window.innerHeight;
   const s = Math.min(sw / W, sh / H);
   canvas.style.width = (W * s) + 'px';
@@ -179,12 +166,11 @@ canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
 /* ==================== 移动端触摸操控（不影响桌面） ==================== */
 let lastTouchTime = -1000;
-const JOY_R = 80;
 const JOY = { active: false, id: -1, ox: 0, oy: 0, x: 0, y: 0 };
 let joyVec = { x: 0, y: 0 };
 let touchFire = false, touchFireId = -1, touchMissileId = -1;
-// (触摸按钮常量已上移，随 W 自适应)
-function hitCircle(b, p) { return distSq(p.x, p.y, b.cx, b.cy) <= b.r * b.r; }
+const JOY_R_PX = 70, JOY_KNOB_PX = 26;
+let uiUseBars = false;
 function hitRectButton(b, p) { return p.x >= b.x && p.x <= b.x + b.w && p.y >= b.y && p.y <= b.y + b.h; }
 
 function touchPointerDown(e) {
@@ -222,11 +208,18 @@ function touchPointerDown(e) {
     paused = false; bgmSetDuck(false); return;
   }
   if (state === 'playing') {
-    if (hitCircle(PB_BTN, c)) { paused = true; bgmSetDuck(true); return; }
-    if (hitCircle(MSL_BTN, c)) { if (touchMissileId < 0) touchMissileId = e.pointerId; tryFireMissile(); return; }
-    if (c.x < W / 2) {
-      if (JOY.id < 0) { JOY.active = true; JOY.id = e.pointerId; JOY.ox = c.x; JOY.oy = c.y; JOY.x = c.x; JOY.y = c.y; joyVec = { x: 0, y: 0 }; }
-    } else {
+    const r = canvas.getBoundingClientRect();
+    const gx = (e.clientX - r.left) / r.width * W;
+    const joystickZone = uiUseBars ? (e.clientX < r.left + 10) : (gx < W / 2);
+    const fireZone = uiUseBars ? (e.clientX > r.right - 10) : (gx >= W / 2);
+    if (joystickZone) {
+      if (JOY.id < 0) {
+        JOY.active = true; JOY.id = e.pointerId;
+        JOY.ox = e.clientX; JOY.oy = e.clientY; JOY.x = e.clientX; JOY.y = e.clientY;
+        joyVec = { x: 0, y: 0 };
+        showJoyAt(e.clientX, e.clientY);
+      }
+    } else if (fireZone) {
       if (touchFireId < 0) touchFireId = e.pointerId;
       touchFire = true;
     }
@@ -234,31 +227,44 @@ function touchPointerDown(e) {
 }
 function touchPointerMove(e) {
   if (JOY.active && JOY.id === e.pointerId) {
-    const p = toLogical(e);
-    JOY.x = clamp(p.x, 0, W); JOY.y = clamp(p.y, 0, H);
-    const dx = JOY.x - JOY.ox, dy = JOY.y - JOY.oy;
+    const dx = e.clientX - JOY.ox, dy = e.clientY - JOY.oy;
     const d = Math.hypot(dx, dy);
-    if (d > JOY_R) { JOY.x = JOY.ox + dx / d * JOY_R; JOY.y = JOY.oy + dy / d * JOY_R; }
-    joyVec = { x: (JOY.x - JOY.ox) / JOY_R, y: (JOY.y - JOY.oy) / JOY_R };
+    let nx = dx, ny = dy;
+    if (d > JOY_R_PX) { nx = dx / d * JOY_R_PX; ny = dy / d * JOY_R_PX; }
+    joyVec = { x: nx / JOY_R_PX, y: ny / JOY_R_PX };
+    if (joyKnobEl) {
+      joyKnobEl.style.left = (JOY.ox + nx - JOY_KNOB_PX) + 'px';
+      joyKnobEl.style.top = (JOY.oy + ny - JOY_KNOB_PX) + 'px';
+    }
   }
 }
 function touchPointerUp(e) {
-  if (JOY.active && JOY.id === e.pointerId) { JOY.active = false; JOY.id = -1; joyVec = { x: 0, y: 0 }; }
+  if (JOY.active && JOY.id === e.pointerId) {
+    JOY.active = false; JOY.id = -1; joyVec = { x: 0, y: 0 };
+    if (joyBaseEl) joyBaseEl.style.display = 'none';
+    if (joyKnobEl) joyKnobEl.style.display = 'none';
+  }
   if (touchFireId === e.pointerId) { touchFireId = -1; touchFire = false; }
   if (touchMissileId === e.pointerId) touchMissileId = -1;
 }
 window.addEventListener('pointerdown', (e) => { if (e.pointerType === 'touch') touchPointerDown(e); });
 window.addEventListener('pointermove', (e) => { if (e.pointerType === 'touch') touchPointerMove(e); });
 
-function drawTouchCircle(b, label, color) {
-  ctx.fillStyle = 'rgba(24,40,80,0.72)';
-  ctx.strokeStyle = color; ctx.lineWidth = 1.5;
-  ctx.beginPath(); ctx.arc(b.cx, b.cy, b.r, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.font = 'bold 15px "Microsoft YaHei"';
-  ctx.fillStyle = '#eaf7ff';
-  ctx.fillText(label, b.cx, b.cy + 1);
+function showJoyAt(x, y) {
+  if (joyBaseEl) {
+    joyBaseEl.style.display = 'block';
+    joyBaseEl.style.width = joyBaseEl.style.height = (JOY_R_PX * 2) + 'px';
+    joyBaseEl.style.left = (x - JOY_R_PX) + 'px';
+    joyBaseEl.style.top = (y - JOY_R_PX) + 'px';
+  }
+  if (joyKnobEl) {
+    joyKnobEl.style.display = 'block';
+    joyKnobEl.style.width = joyKnobEl.style.height = (JOY_KNOB_PX * 2) + 'px';
+    joyKnobEl.style.left = (x - JOY_KNOB_PX) + 'px';
+    joyKnobEl.style.top = (y - JOY_KNOB_PX) + 'px';
+  }
 }
+
 function drawNickButton() {
   ctx.fillStyle = 'rgba(24,40,80,0.78)';
   ctx.strokeStyle = '#9ad7ff'; ctx.lineWidth = 1.5;
@@ -270,20 +276,71 @@ function drawNickButton() {
   ctx.fillStyle = '#eaf7ff';
   ctx.fillText('修改昵称', NICK_BTN.x + NICK_BTN.w / 2, NICK_BTN.y + NICK_BTN.h / 2 + 1);
 }
-function drawTouchUI() {
-  drawTouchCircle(PB_BTN, paused ? '▶' : 'Ⅱ', '#7fd4ff');
-  if (paused) return;
-  drawTouchCircle(FIRE_BTN, '射击', '#7ef0ff');
-  drawTouchCircle(MSL_BTN, '导弹', '#ffb347');
-  if (JOY.active) {
-    ctx.strokeStyle = 'rgba(127,212,255,0.45)'; ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.arc(JOY.ox, JOY.oy, JOY_R, 0, Math.PI * 2); ctx.stroke();
-    ctx.fillStyle = 'rgba(127,212,255,0.15)';
-    ctx.beginPath(); ctx.arc(JOY.ox, JOY.oy, JOY_R, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = 'rgba(127,212,255,0.6)';
-    ctx.beginPath(); ctx.arc(JOY.x, JOY.y, 32, 0, Math.PI * 2); ctx.fill();
+/* ---- 移动端 HTML 控件（置于画布外黑边） ---- */
+const mobileUI = document.getElementById('mobile-ui');
+const joyBaseEl = document.getElementById('joy-base');
+const joyKnobEl = document.getElementById('joy-knob');
+const btnPauseEl = document.getElementById('btn-pause');
+const btnMissileEl = document.getElementById('btn-missile');
+const btnFireEl = document.getElementById('btn-fire');
+function layoutMobileUI() {
+  if (!mobileUI) return;
+  const r = canvas.getBoundingClientRect();
+  const barW = (window.innerWidth - r.width) / 2;
+  uiUseBars = barW > 30;
+  const cxp = window.innerWidth - Math.max(24, barW * 0.5);
+  const fs = Math.min(88, Math.max(62, window.innerWidth * 0.09));
+  const ms = Math.round(fs * 0.82), ps = Math.round(fs * 0.6);
+  if (btnFireEl) {
+    btnFireEl.style.width = btnFireEl.style.height = fs + 'px';
+    btnFireEl.style.right = (window.innerWidth - cxp - fs / 2) + 'px';
+    btnFireEl.style.bottom = '8%';
+  }
+  if (btnMissileEl) {
+    btnMissileEl.style.width = btnMissileEl.style.height = ms + 'px';
+    btnMissileEl.style.right = (window.innerWidth - cxp - ms / 2) + 'px';
+    btnMissileEl.style.bottom = 'calc(8% + ' + Math.round(fs + 20) + 'px)';
+  }
+  if (btnPauseEl) {
+    btnPauseEl.style.width = btnPauseEl.style.height = ps + 'px';
+    btnPauseEl.style.right = (window.innerWidth - cxp - ps / 2) + 'px';
+    btnPauseEl.style.top = '7%';
   }
 }
+function updateMobileUI() {
+  if (!mobileUI) return;
+  if (isTouch && state === 'playing') {
+    if (mobileUI.style.display !== 'block') mobileUI.style.display = 'block';
+    if (btnPauseEl) btnPauseEl.textContent = paused ? '▶' : 'Ⅱ';
+  } else {
+    mobileUI.style.display = 'none';
+  }
+}
+function initMobileUI() {
+  if (!isTouch || !mobileUI) return;
+  layoutMobileUI();
+  window.addEventListener('resize', layoutMobileUI);
+  const stop = (e) => { e.preventDefault(); e.stopPropagation(); };
+  if (btnPauseEl) btnPauseEl.addEventListener('pointerdown', (e) => {
+    stop(e); if (state !== 'playing') return; initAudio();
+    paused = !paused; bgmSetDuck(paused); btnPauseEl.textContent = paused ? '▶' : 'Ⅱ';
+  });
+  if (btnMissileEl) btnMissileEl.addEventListener('pointerdown', (e) => {
+    stop(e); if (state !== 'playing' || paused) return; initAudio();
+    tryFireMissile();
+  });
+  if (btnFireEl) {
+    const fireEnd = (e) => { if (touchFireId === e.pointerId) { touchFireId = -1; touchFire = false; } };
+    btnFireEl.addEventListener('pointerdown', (e) => {
+      stop(e); if (state !== 'playing' || paused) return; initAudio();
+      if (touchFireId < 0) touchFireId = e.pointerId;
+      touchFire = true;
+    });
+    btnFireEl.addEventListener('pointerup', fireEnd);
+    btnFireEl.addEventListener('pointercancel', fireEnd);
+  }
+}
+initMobileUI();
 const rotateHint = document.getElementById('rotate-hint');
 function updateRotateHint() {
   const show = isTouch && window.innerHeight > window.innerWidth;
@@ -1834,8 +1891,8 @@ function drawMenu() {
   const lines = isTouch ? [
     '移动：左侧拖拽摇杆',
     '射击：右侧按住射击区（连发）',
-    '导弹：点击导弹按钮（自动追踪）',
-    '暂停：右上角暂停按钮',
+    '导弹：点击右侧导弹按钮（自动追踪）',
+    '暂停：点击右侧暂停按钮',
   ] : [
     '移动：W A S D / 方向键 / 鼠标',
     '射击：空格 / 鼠标左键（按住连发）',
@@ -1927,7 +1984,7 @@ function drawHelp() {
   ctx.fillStyle = '#03050f';
   ctx.fillRect(0, 0, W, H);
   if (helpImgLoaded && helpImg.width > 0) {
-    const scale = (isTouch ? Math.min : Math.max)(W / helpImg.width, H / helpImg.height);
+    const scale = Math.max(W / helpImg.width, H / helpImg.height);
     const dw = helpImg.width * scale, dh = helpImg.height * scale;
     ctx.drawImage(helpImg, (W - dw) / 2, (H - dh) / 2, dw, dh);
   } else {
@@ -2164,7 +2221,7 @@ function draw() {
   drawFloaters();
   ctx.restore();
   if (state === 'playing' || state === 'gameover') drawHUD();
-  if (isTouch && state === 'playing') drawTouchUI();
+  updateMobileUI();
   if (waveBanner > 0 && state !== 'board') drawWaveBanner();
   if (state === 'menu') drawMenu();
   else if (state === 'help') drawHelp();
