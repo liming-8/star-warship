@@ -35,7 +35,7 @@ canvas:focus { outline: none; }
     <button class="nick-offline" id="nick-offline">离线模式继续</button>
   </div>
 </div>
-<div id="rotate-hint" style="display:none;position:fixed;inset:0;z-index:98;background:#05060f;color:#9ad7ff;font-family:'Microsoft YaHei',sans-serif;align-items:center;justify-content:center;text-align:center;font-size:18px;letter-spacing:2px;">请将手机旋转至横屏游玩<br><span style="font-size:13px;color:#6f94b8;margin-top:10px;display:inline-block;">横屏后自动进入游戏</span></div>
+<div id="rotate-hint" style="display:none;position:fixed;inset:0;z-index:98;background:#05060f;color:#9ad7ff;font-family:'Microsoft YaHei',sans-serif;flex-direction:column;align-items:center;justify-content:center;text-align:center;"><div style="font-size:21px;letter-spacing:4px;line-height:1.5;">请将手机旋转至横屏游玩</div><div style="margin-top:22px;font-size:14px;color:#6f94b8;letter-spacing:1px;">横屏后自动进入游戏</div></div><div style="margin-top:22px;font-size:14px;color:#6f94b8;letter-spacing:1px;">横屏后自动进入游戏</div></div>
 <script src="config.js"></script>
 <script>
 'use strict';
@@ -89,24 +89,30 @@ window.addEventListener('keydown', (e) => {
   if (e.code === 'Enter') {
     if (state === 'menu' || state === 'gameover') startGame();
     else if (state === 'win') { state = 'playing'; nextWave(); }
-    else if (state === 'board') { state = prevState; if (state === 'playing') paused = prevPaused; }
-    else if (state === 'help') { state = prevState; if (state === 'playing') paused = prevPaused; }
+    else if (state === 'board') { state = prevState; if (state === 'playing') { paused = prevPaused; bgmSetDuck(paused); } }
+    else if (state === 'help') { state = prevState; if (state === 'playing') { paused = prevPaused; bgmSetDuck(paused); } }
   }
-  if (e.code === 'KeyP') { if (state === 'playing') paused = !paused; }
-  if (e.code === 'KeyM') muted = !muted;
+  if (e.code === 'KeyP') { if (state === 'playing') { paused = !paused; bgmSetDuck(paused); } }
+  if (e.code === 'KeyM') { muted = !muted; initAudio(); bgmApplyMute(); }
   if (e.code === 'KeyN') { if (state === 'menu') openNicknameOverlay('rename'); }
   if (e.code === 'KeyT') {
-    if (state === 'board') { state = prevState; if (state === 'playing') paused = prevPaused; }
-    else if (state === 'help') { state = prevState; if (state === 'playing') paused = prevPaused; }
-    else { prevPaused = paused; prevState = state; if (state === 'playing') paused = true; state = 'board'; if (boardTab === 'global') loadGlobalBoard(); }
+    if (state === 'board') { state = prevState; if (state === 'playing') { paused = prevPaused; bgmSetDuck(paused); } }
+    else if (state === 'help') { state = prevState; if (state === 'playing') { paused = prevPaused; bgmSetDuck(paused); } }
+    else { prevPaused = paused; prevState = state; if (state === 'playing') { paused = true; bgmSetDuck(true); } state = 'board'; if (boardTab === 'global') loadGlobalBoard(); }
   }
   if (e.code === 'Escape') {
-    if (state === 'board' || state === 'help') { state = prevState; if (state === 'playing') paused = prevPaused; }
+    if (state === 'board' || state === 'help') { state = prevState; if (state === 'playing') { paused = prevPaused; bgmSetDuck(paused); } }
   }
   if (e.code === 'Digit1') { if (state === 'board') { boardTab = 'global'; loadGlobalBoard(); } }
   if (e.code === 'Digit2') { if (state === 'board') boardTab = 'personal'; }
   if (e.code === 'KeyX') { if (state === 'playing') tryFireMissile(); }
 });
+// 首次允许音频后，若仍在主菜单则播菜单 BGM
+function bgmMaybeMenu() {
+  if (audioCtx && (state === 'menu' || state === 'board' || state === 'help') && prevState !== 'playing') {
+    bgmSet('menu');
+  }
+}
 window.addEventListener('keyup', (e) => { keys[e.code] = false; });
 
 canvas.addEventListener('pointermove', (e) => {
@@ -121,7 +127,7 @@ canvas.addEventListener('pointerdown', (e) => {
   const p = toLogical(e); mouse.x = p.x; mouse.y = p.y; lastMouseMove = time;
   if (e.button === 2) { mouse.rdown = true; if (state === 'playing' && !paused && !(e.buttons & 1)) tryFireMissile(); }
   else { mouse.down = true; }
-  if (state === 'help') { state = prevState; if (state === 'playing') paused = prevPaused; return; }
+  if (state === 'help') { state = prevState; if (state === 'playing') { paused = prevPaused; bgmSetDuck(paused); } return; }
   if (state === 'menu') {
     if (hitCornerButton(BTN_LEADER, p)) { prevState = 'menu'; state = 'board'; if (boardTab === 'global') loadGlobalBoard(); return; }
     if (hitCornerButton(BTN_HELP, p)) { prevState = 'menu'; state = 'help'; return; }
@@ -141,7 +147,7 @@ canvas.addEventListener('pointerdown', (e) => {
       if (Math.abs(pb.x - (W / 2 - 100)) <= w / 2) { boardTab = 'global'; loadGlobalBoard(); return; }
       if (Math.abs(pb.x - (W / 2 + 100)) <= w / 2) { boardTab = 'personal'; return; }
     }
-    state = prevState; if (state === 'playing') paused = prevPaused;
+    state = prevState; if (state === 'playing') { paused = prevPaused; bgmSetDuck(paused); }
   }
   else if (state === 'win') { state = 'playing'; nextWave(); }
 });
@@ -173,7 +179,7 @@ function touchPointerDown(e) {
   if (e.cancelable) e.preventDefault();
   const p = toLogical(e);
   const c = { x: clamp(p.x, 0, W), y: clamp(p.y, 0, H) };
-  if (state === 'help') { state = prevState; if (state === 'playing') paused = prevPaused; return; }
+  if (state === 'help') { state = prevState; if (state === 'playing') { paused = prevPaused; bgmSetDuck(paused); } return; }
   if (state === 'menu') {
     if (hitCornerButton(BTN_LEADER, c)) { prevState = 'menu'; state = 'board'; if (boardTab === 'global') loadGlobalBoard(); return; }
     if (hitCornerButton(BTN_HELP, c)) { prevState = 'menu'; state = 'help'; return; }
@@ -192,15 +198,15 @@ function touchPointerDown(e) {
       if (Math.abs(c.x - (W / 2 - 100)) <= w / 2) { boardTab = 'global'; loadGlobalBoard(); return; }
       if (Math.abs(c.x - (W / 2 + 100)) <= w / 2) { boardTab = 'personal'; return; }
     }
-    state = prevState; if (state === 'playing') paused = prevPaused; return;
+    state = prevState; if (state === 'playing') { paused = prevPaused; bgmSetDuck(paused); } return;
   }
   if (state === 'playing' && paused) {
     if (hitCornerButton(BTN_LEADER, c)) { prevPaused = true; prevState = 'playing'; state = 'board'; if (boardTab === 'global') loadGlobalBoard(); return; }
     if (hitCornerButton(BTN_HELP, c)) { prevPaused = true; prevState = 'playing'; state = 'help'; return; }
-    paused = false; return;
+    paused = false; bgmSetDuck(false); return;
   }
   if (state === 'playing') {
-    if (hitCircle(PB_BTN, c)) { paused = true; return; }
+    if (hitCircle(PB_BTN, c)) { paused = true; bgmSetDuck(true); return; }
     if (hitCircle(MSL_BTN, c)) { if (touchMissileId < 0) touchMissileId = e.pointerId; tryFireMissile(); return; }
     if (c.x < W / 2) {
       if (JOY.id < 0) { JOY.active = true; JOY.id = e.pointerId; JOY.ox = c.x; JOY.oy = c.y; JOY.x = c.x; JOY.y = c.y; joyVec = { x: 0, y: 0 }; }
@@ -277,6 +283,9 @@ function initAudio() {
     try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch (err) {}
   }
   if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+  bgmEnsure();
+  bgmApplyMute();
+  if (typeof bgmMaybeMenu === 'function') bgmMaybeMenu();
 }
 function tone(freq, dur, type, vol, slideTo) {
   if (muted || !audioCtx) return;
@@ -312,6 +321,557 @@ const sfx = {
   gameover(){ tone(400, 0.30, 'sawtooth', 0.22, 200); setTimeout(() => tone(280, 0.30, 'sawtooth', 0.22, 140), 250); setTimeout(() => tone(160, 0.60, 'sawtooth', 0.22, 60), 500); },
   win()     { tone(523, 0.15, 'triangle', 0.25); setTimeout(() => tone(659, 0.15, 'triangle', 0.25), 150); setTimeout(() => tone(784, 0.15, 'triangle', 0.25), 300); setTimeout(() => tone(1046, 0.40, 'triangle', 0.28), 450); },
 };
+
+/* ==================== 局内 BGM（Web Audio 程序化 · 现代室内乐） ====================
+ * 钢琴 / 小提琴 / 大提琴程序化音色，无外部音频。
+ * menu / battle / boss 随波次与局势分层，段落轮换避免死循环。 */
+const bgm = {
+  master: null,
+  dry: null,
+  delaySend: null,
+  mode: 'off',
+  step: 0,
+  nextTime: 0,
+  timer: null,
+  targetVol: 0.32,
+  fadeTimer: null,
+  startMode: null,
+  phrase: 0,
+  intensity: 1,
+  lastMode: null,
+};
+
+function bgmComputeIntensity() {
+  if (state !== 'playing') return 1;
+  let level = 1;
+  if (wave >= 3) level = 2;
+  if (wave >= 6) level = 3;
+  if (player.hp <= 1) level = Math.min(3, level + 1);
+  if (enemies.length >= 10) level = Math.min(3, level + 1);
+  if (bossAlive || enemies.some(e => e.type === 'boss')) level = 3;
+  return level;
+}
+
+const CHORDS = {
+  Am: [0, 3, 7],
+  F:  [0, 4, 7],
+  C:  [0, 4, 7],
+  G:  [0, 4, 7],
+  Em: [0, 3, 7],
+  Dm: [0, 3, 7],
+  Bb: [0, 4, 7],
+  E:  [0, 4, 7],
+};
+
+const BGM_TRACKS = {
+  /* 主菜单：钢琴独奏感 + 远景小提琴长音 */
+  menu: {
+    bpm: 70,
+    steps: 64,
+    voices(t, step, schedule) {
+      const s = step % 64;
+      const bar = Math.floor(s / 16);
+      const sub = s % 16;
+      const prog = [
+        { root: 57, name: 'Am' },
+        { root: 53, name: 'F' },
+        { root: 48, name: 'C' },
+        { root: 55, name: 'G' },
+      ];
+      const ch = prog[bar];
+      const iv = CHORDS[ch.name];
+
+      // 每小节：左手和弦 + 右手分解
+      if (sub === 0) {
+        schedule.piano(t, 2.4, ch.root - 12, 0.10);
+        schedule.piano(t + 0.01, 2.2, ch.root + iv[0], 0.07);
+        schedule.piano(t + 0.02, 2.0, ch.root + iv[1], 0.055);
+        schedule.violin(t + 0.15, 3.6, ch.root + 12 + iv[2], 0.035);
+        schedule.cello(t, 3.4, ch.root - 12, 0.040);
+      }
+      // 琶音碎星
+      const arp = [0, 2, 4, 7, 4, 2];
+      if (s % 2 === 0) {
+        const n = ch.root + 12 + iv[(s / 2) % 3] + (s >= 32 ? 12 : 0);
+        schedule.piano(t + 0.01, 0.9, n, 0.045 + ((s / 2) % 2) * 0.01);
+      }
+      // 高音点缀
+      if (s === 4 || s === 20 || s === 36 || s === 52) {
+        schedule.piano(t, 1.4, ch.root + 24 + iv[2], 0.05);
+      }
+      // 偶发中提琴色彩
+      if (bar === 1 && s === 8) schedule.violin(t, 1.8, ch.root + 12 + iv[1], 0.04);
+      if (bar === 3 && s === 8) schedule.violin(t, 1.8, ch.root + 12 + iv[0] + 12, 0.038);
+      void arp;
+    },
+  },
+
+  /* 战斗：钢琴固定音型 + 小提琴主旋律 + 大提琴低音，轻节奏脉冲 */
+  battle: {
+    bpm: 108,
+    steps: 128,
+    voices(t, step, schedule, bgmState) {
+      const s = step % 128;
+      const bar = Math.floor(s / 16);
+      const sub = s % 16;
+      const phrase = bgmState.phrase | 0;
+      const inten = bgmState.intensity | 0;
+      const prog = [
+        { root: 57, name: 'Am' },
+        { root: 53, name: 'F' },
+        { root: 48, name: 'C' },
+        { root: 55, name: 'G' },
+        { root: 57, name: 'Am' },
+        { root: 53, name: 'F' },
+        { root: 48, name: 'C' },
+        { root: 55, name: 'G' },
+      ];
+      const ch = prog[bar];
+      const r = ch.root;
+      const iv = CHORDS[ch.name];
+      const section = bar < 4 ? 0 : (bar < 6 ? 1 : 2);
+      const heavy = inten >= 2;
+      const full = inten >= 3;
+      const melVar = phrase % 4;
+
+      // —— 钢琴左手：持续分解低音（现代电影钢琴）——
+      if (sub % 4 === 0) {
+        const left = [0, 7, 3, 7];
+        const n = r - 12 + left[(sub / 4) | 0];
+        schedule.piano(t, 0.7, n, section === 0 ? 0.085 : 0.095);
+      }
+      // 右手八分律动（段落换型）
+      if (s % 2 === 0 && (inten >= 1 || section > 0)) {
+        const rightPat = section === 0
+          ? [0, 3, 7, 3, 0, 3, 7, 10]
+          : section === 1
+            ? [0, 7, 12, 7, 3, 7, 10, 7]
+            : [0, 3, 7, 10, 12, 10, 7, 3];
+        const n = r + rightPat[(s / 2) % 8];
+        schedule.piano(t, 0.28, n, heavy ? 0.07 : 0.055);
+      }
+
+      // —— 大提琴：长音根音 + 偶尔对位 ——
+      if (sub === 0) {
+        schedule.cello(t, section === 1 ? 1.0 : 1.6, r - 12, heavy ? 0.09 : 0.07);
+        if (heavy) schedule.cello(t + 0.02, 1.4, r - 12 + iv[2], 0.045);
+      }
+      // 中低音推进（高波次）
+      if (full && s % 4 === 2) {
+        schedule.cello(t, 0.22, r - 24 + iv[(s / 4) % 3], 0.05);
+      }
+
+      // —— 轻脉冲（钢琴低音八度，不是架子鼓）——
+      if (heavy && (sub === 0 || sub === 8)) {
+        schedule.piano(t, 0.20, r - 24, 0.07);
+      }
+      if (full && sub === 4) schedule.piano(t, 0.16, r - 24, 0.045);
+
+      // —— 小提琴主旋律 ——
+      // A 段（bar 0-3）：宽广连奏
+      const melA = [
+        [0, 76, 0.70], [4, 74, 0.45], [6, 72, 0.55], [10, 76, 0.55], [12, 79, 0.65],
+        [16, 77, 0.70], [20, 76, 0.45], [22, 72, 0.80], [28, 74, 0.40], [30, 76, 0.45],
+        [32, 76, 0.65], [36, 79, 0.40], [38, 81, 0.55], [42, 79, 0.45], [44, 76, 0.70],
+        [48, 74, 0.55], [52, 71, 0.40], [54, 74, 0.50], [58, 72, 0.90],
+      ];
+      // B 段：更高、更密
+      const melB = [
+        [64, 81, 0.40], [66, 83, 0.40], [68, 84, 0.65], [72, 83, 0.40], [74, 81, 0.55],
+        [80, 83, 0.40], [82, 86, 0.40], [84, 88, 0.85], [88, 84, 0.40], [90, 83, 0.60],
+      ];
+      // C 段：回落再现
+      const melC = [
+        [96, 76, 0.50], [100, 72, 0.40], [102, 74, 0.60], [106, 71, 0.40], [108, 76, 0.55],
+        [112, 79, 0.50], [116, 74, 0.40], [118, 71, 0.55], [122, 72, 1.00],
+      ];
+      const mel = section === 0 ? melA : section === 1 ? melB : melC;
+
+      if (inten >= 2 || (inten >= 1 && section !== 1)) {
+        for (const [off, n, d] of mel) {
+          if (s !== off) continue;
+          if (inten === 1 && off % 4 !== 0) continue;
+          const vol = section === 1 ? 0.095 : 0.085;
+          schedule.violin(t, d, n, vol);
+          // 高波次：八度叠奏或对位
+          if (full) schedule.violin(t + 0.01, d * 0.85, n - 12, 0.04);
+          else if (heavy && melVar >= 2) schedule.violin(t + 0.02, d * 0.7, n + 12, 0.028);
+          // 钢琴跟随旋律装饰
+          if (heavy && off % 4 === 0) schedule.piano(t + 0.01, 0.35, n - 12, 0.04);
+        }
+      }
+
+      // —— 中提琴/第二小提琴内声部 ——
+      if (heavy && sub === 0) {
+        schedule.violin(t + 0.05, 1.0, r + 12 + iv[1], 0.03);
+      }
+      if (full && section === 1 && s % 4 === 2) {
+        schedule.violin(t, 0.20, r + 12 + iv[(s / 4 + melVar) % 3] + 12, 0.03);
+      }
+      // 段落转换处钢琴和弦重音
+      if (heavy && sub === 0 && (bar === 4 || bar === 6)) {
+        schedule.piano(t, 1.2, r - 12, 0.09);
+        schedule.piano(t + 0.01, 1.1, r + iv[0], 0.06);
+        schedule.piano(t + 0.02, 1.0, r + iv[1], 0.05);
+      }
+      // B 段末小提琴颤弓感短音
+      if (heavy && bar === 5 && sub >= 12) {
+        schedule.violin(t, 0.08, 83, 0.04);
+      }
+    },
+  },
+
+  /* Boss：钢琴断奏 + 小提琴压迫动机 + 大提琴低音，室内乐紧张感 */
+  boss: {
+    bpm: 132,
+    steps: 128,
+    voices(t, step, schedule, bgmState) {
+      const s = step % 128;
+      const bar = Math.floor(s / 16);
+      const sub = s % 16;
+      const inten = bgmState.intensity | 0;
+      const prog = [
+        { root: 50, name: 'Dm' },
+        { root: 58, name: 'Bb' },
+        { root: 53, name: 'F' },
+        { root: 52, name: 'E' },
+        { root: 50, name: 'Dm' },
+        { root: 58, name: 'Bb' },
+        { root: 53, name: 'F' },
+        { root: 52, name: 'E' },
+      ];
+      const ch = prog[bar];
+      const r = ch.root;
+      const iv = CHORDS[ch.name];
+      const section = bar < 4 ? 0 : 1;
+
+      // 钢琴：紧张断奏固定音型
+      if (s % 2 === 0) {
+        const ost = section === 0
+          ? [0, 0, 3, 0, 0, 5, 3, 1]
+          : [0, 7, 0, 10, 0, 7, 3, 5];
+        const n = r + ost[(s / 2) % 8];
+        schedule.piano(t, 0.16, n, inten >= 2 ? 0.09 : 0.075);
+        if (sub % 4 === 0) schedule.piano(t, 0.14, r - 12, 0.08);
+      }
+      // 低音八分强化
+      if (section === 1 && s % 2 === 0) {
+        schedule.piano(t + 0.01, 0.14, r - 24 + iv[(s / 2) % 3], 0.055);
+      }
+
+      // 大提琴：持续低音 + 压迫对位
+      if (sub === 0) {
+        schedule.cello(t, 1.3, r - 12, 0.10);
+        schedule.cello(t + 0.03, 1.2, r - 12 + iv[2] - 12, 0.055);
+      }
+      if (section === 1 && sub === 8) {
+        schedule.cello(t, 0.5, r - 12 + 3, 0.06);
+      }
+
+      // 小提琴：黑暗动机（半音/增四色彩）
+      const motifA = [
+        [0, 69, 0.22], [2, 69, 0.18], [4, 75, 0.35], [8, 69, 0.20], [10, 72, 0.30],
+        [16, 69, 0.22], [18, 70, 0.28], [20, 75, 0.35], [24, 74, 0.28], [28, 72, 0.40],
+        [32, 68, 0.25], [34, 68, 0.20], [36, 75, 0.40], [40, 74, 0.25], [44, 76, 0.45],
+        [48, 76, 0.30], [52, 72, 0.35], [56, 75, 0.50], [60, 79, 0.45],
+      ];
+      const motifB = [
+        [64, 74, 0.28], [66, 74, 0.20], [68, 81, 0.45], [72, 79, 0.28], [76, 76, 0.40],
+        [80, 81, 0.30], [82, 82, 0.35], [84, 81, 0.40], [88, 79, 0.30], [92, 76, 0.45],
+        [96, 75, 0.30], [100, 79, 0.35], [104, 80, 0.40], [108, 76, 0.35], [112, 75, 0.50],
+        [116, 72, 0.40], [120, 75, 0.60], [124, 79, 0.50],
+      ];
+      const motif = section === 0 ? motifA : motifB;
+      for (const [off, n, d] of motif) {
+        if (s !== off) continue;
+        schedule.violin(t, d, n, inten >= 2 ? 0.10 : 0.08);
+        // 高八度叠奏（更锋利）
+        if (inten >= 2) schedule.violin(t + 0.008, d * 0.75, n + 12, 0.035);
+        // 钢琴八度重音呼应
+        if (off % 4 === 0) schedule.piano(t + 0.01, 0.20, n - 12, 0.05);
+      }
+
+      // 内声部紧张颤音（段落后半）
+      if (section === 1 && s % 4 === 0) {
+        schedule.violin(t, 0.12, r + 12 + iv[1], 0.035);
+        schedule.violin(t + 0.04, 0.10, r + 12 + iv[1] + 1, 0.03);
+      }
+      // 段落切换：钢琴和弦刺击
+      if (sub === 0 && bar === 4) {
+        schedule.piano(t, 0.9, r - 12, 0.10);
+        schedule.piano(t + 0.01, 0.85, r + iv[0], 0.07);
+        schedule.piano(t + 0.02, 0.8, r + iv[1], 0.055);
+        schedule.cello(t, 1.0, r - 24, 0.08);
+      }
+    },
+  },
+};
+
+function midiHz(n) { return 440 * Math.pow(2, (n - 69) / 12); }
+
+function bgmSend(node, sendAmt) {
+  if (!bgm.delaySend || sendAmt <= 0) return;
+  const sg = audioCtx.createGain();
+  sg.gain.value = sendAmt;
+  node.connect(sg);
+  sg.connect(bgm.delaySend);
+}
+
+/** 通用指数衰减包络 */
+function bgmDecayGain(t, dur, peak, atk) {
+  const g = audioCtx.createGain();
+  const a = atk == null ? 0.008 : atk;
+  const peakV = Math.max(peak, 0.0002);
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(peakV, t + a);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  return g;
+}
+
+function bgmMakeSchedule() {
+  const bus = bgm.master;
+  return {
+    /** 钢琴：多分音加性合成 + 锤击噪声 + 略微非谐 */
+    piano(t, dur, midi, vol) {
+      const f0 = midiHz(midi);
+      const out = audioCtx.createGain();
+      out.gain.value = 1;
+      // 锤击
+      const hn = Math.floor(audioCtx.sampleRate * 0.02);
+      const hbuf = audioCtx.createBuffer(1, hn, audioCtx.sampleRate);
+      const hd = hbuf.getChannelData(0);
+      for (let i = 0; i < hn; i++) hd[i] = (Math.random() * 2 - 1) * (1 - i / hn) * 0.4;
+      const hsrc = audioCtx.createBufferSource(); hsrc.buffer = hbuf;
+      const hf = audioCtx.createBiquadFilter(); hf.type = 'bandpass'; hf.frequency.value = f0 * 4; hf.Q.value = 1.2;
+      const hg = audioCtx.createGain(); hg.gain.value = 0.04 * vol;
+      hsrc.connect(hf); hf.connect(hg); hg.connect(out);
+      hsrc.start(t);
+      // 分音（含非谐）
+      const partials = [
+        [1.0, 1.0, 1.0],
+        [2.0, 0.45, 0.72],
+        [3.0, 0.22, 0.48],
+        [4.0, 0.14, 0.35],
+        [5.02, 0.08, 0.26],
+        [6.1, 0.05, 0.20],
+      ];
+      for (const [mul, amp, decayScale] of partials) {
+        const o = audioCtx.createOscillator();
+        o.type = 'sine';
+        o.frequency.value = f0 * mul;
+        const g = audioCtx.createGain();
+        const d = Math.max(0.08, dur * decayScale);
+        g.gain.setValueAtTime(0.0001, t);
+        g.gain.exponentialRampToValueAtTime(Math.max(amp * vol, 0.0002), t + 0.006);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + d);
+        o.connect(g); g.connect(out);
+        o.start(t); o.stop(t + d + 0.05);
+      }
+      // 琴体共鸣
+      const body = audioCtx.createBiquadFilter();
+      body.type = 'peaking';
+      body.frequency.value = Math.min(1200, f0 * 2);
+      body.gain.value = 3;
+      body.Q.value = 0.8;
+      out.connect(body); body.connect(bus);
+      bgmSend(body, 0.22);
+    },
+
+    /** 小提琴：锯齿双振荡器 + 颤音 LFO + 弓压滤波 */
+    violin(t, dur, midi, vol) {
+      const f0 = midiHz(midi);
+      const out = audioCtx.createGain();
+      const a = Math.min(0.08, dur * 0.15);
+      const r = Math.min(0.12, dur * 0.2);
+      out.gain.setValueAtTime(0.0001, t);
+      out.gain.exponentialRampToValueAtTime(Math.max(vol, 0.0002), t + a);
+      out.gain.setValueAtTime(Math.max(vol, 0.0002), t + Math.max(a, dur * 0.6));
+      out.gain.exponentialRampToValueAtTime(0.0001, t + dur + r);
+
+      const lfo = audioCtx.createOscillator();
+      lfo.type = 'sine';
+      lfo.frequency.value = 5.2 + Math.random() * 0.6;
+      const lfoG = audioCtx.createGain();
+      lfoG.gain.value = f0 * 0.008; // ~14 cents vibrato
+      lfo.connect(lfoG);
+      lfo.start(t); lfo.stop(t + dur + r + 0.1);
+
+      const filt = audioCtx.createBiquadFilter();
+      filt.type = 'lowpass';
+      filt.frequency.setValueAtTime(1800, t);
+      filt.frequency.exponentialRampToValueAtTime(3200, t + a + 0.05);
+      filt.Q.value = 1.1;
+
+      for (const det of [0.997, 1.003]) {
+        const o = audioCtx.createOscillator();
+        o.type = 'sawtooth';
+        o.frequency.value = f0 * det;
+        lfoG.connect(o.frequency);
+        o.connect(out);
+        o.start(t); o.stop(t + dur + r + 0.1);
+      }
+      // 弓噪
+      const sn = Math.floor(audioCtx.sampleRate * Math.min(0.08, dur * 0.3));
+      if (sn > 32) {
+        const sbuf = audioCtx.createBuffer(1, sn, audioCtx.sampleRate);
+        const sd = sbuf.getChannelData(0);
+        for (let i = 0; i < sn; i++) sd[i] = (Math.random() * 2 - 1) * (1 - i / sn);
+        const src = audioCtx.createBufferSource(); src.buffer = sbuf;
+        const sf = audioCtx.createBiquadFilter(); sf.type = 'highpass'; sf.frequency.value = 2500;
+        const sg = audioCtx.createGain(); sg.gain.value = vol * 0.04;
+        src.connect(sf); sf.connect(sg); sg.connect(out);
+        src.start(t);
+      }
+      out.connect(filt); filt.connect(bus);
+      bgmSend(filt, 0.20);
+    },
+
+    /** 大提琴：更低、更暗的弦乐，身体共鸣峰 */
+    cello(t, dur, midi, vol) {
+      // 大提琴音区：过低不超过大提琴最低，过高做轻微下移保持音色厚度
+      let n = midi;
+      if (n < 36) n = 36;
+      if (n > 67) n = n - 12;
+      const f0 = midiHz(n);
+      const out = audioCtx.createGain();
+      const a = Math.min(0.10, dur * 0.18);
+      out.gain.setValueAtTime(0.0001, t);
+      out.gain.exponentialRampToValueAtTime(Math.max(vol, 0.0002), t + a);
+      out.gain.setValueAtTime(Math.max(vol, 0.0002), t + Math.max(a, dur * 0.65));
+      out.gain.exponentialRampToValueAtTime(0.0001, t + dur + 0.15);
+
+      const lfo = audioCtx.createOscillator();
+      lfo.type = 'sine';
+      lfo.frequency.value = 4.5;
+      const lfoG = audioCtx.createGain();
+      lfoG.gain.value = f0 * 0.005;
+      lfo.connect(lfoG);
+      lfo.start(t); lfo.stop(t + dur + 0.2);
+
+      const filt = audioCtx.createBiquadFilter();
+      filt.type = 'lowpass';
+      filt.frequency.value = 1200;
+      const body = audioCtx.createBiquadFilter();
+      body.type = 'peaking';
+      body.frequency.value = 180;
+      body.gain.value = 4;
+      body.Q.value = 1.2;
+
+      for (const det of [0.996, 1.0, 1.004]) {
+        const o = audioCtx.createOscillator();
+        o.type = 'sawtooth';
+        o.frequency.value = f0 * det;
+        lfoG.connect(o.frequency);
+        const og = audioCtx.createGain(); og.gain.value = 0.55;
+        o.connect(og); og.connect(out);
+        o.start(t); o.stop(t + dur + 0.2);
+      }
+      // 基频正弦加强厚度
+      const os = audioCtx.createOscillator();
+      os.type = 'sine';
+      os.frequency.value = f0;
+      const osg = audioCtx.createGain(); osg.gain.value = 0.5;
+      os.connect(osg); osg.connect(out);
+      os.start(t); os.stop(t + dur + 0.2);
+
+      out.connect(filt); filt.connect(body); body.connect(bus);
+      bgmSend(body, 0.12);
+    },
+
+    // 兼容旧调用名（若仍有引用）
+    brass(t, dur, midi, vol) { this.violin(t, dur, midi, vol * 0.9); },
+    strings(t, dur, midi, vol) { this.violin(t, dur, midi, vol * 0.75); },
+    choir(t, dur, root, i0, i1, vol) {
+      this.violin(t, dur, root + i0, vol * 0.6);
+      this.violin(t + 0.02, dur * 0.9, root + i1, vol * 0.45);
+    },
+    lead(t, dur, midi, vol) { this.piano(t, dur, midi, vol * 0.8); },
+    bell(t, midi, vol) { this.piano(t, 1.2, midi, vol); },
+    bass(t, dur, midi, vol) { this.cello(t, dur, midi, vol); },
+    // 轻量脉冲：低音钢琴代替战鼓
+    timpani(t, midi, amp) { this.piano(t, 0.35, midi, 0.06 * amp); },
+    kick(t, amp) { this.piano(t, 0.18, 33, 0.05 * amp); },
+    snare(t, amp) { this.piano(t, 0.12, 55, 0.04 * amp); },
+    hat() {},
+    crash() {},
+  };
+}
+
+function bgmTargetVolume() {
+  if (muted) return 0;
+  if (state === 'playing' && paused) return bgm.targetVol * 0.18;
+  return bgm.targetVol;
+}
+function bgmApplyMute() {
+  if (!bgm.master || !audioCtx) return;
+  bgm.master.gain.cancelScheduledValues(audioCtx.currentTime);
+  bgm.master.gain.setTargetAtTime(bgmTargetVolume(), audioCtx.currentTime, 0.05);
+}
+
+function bgmEnsure() {
+  if (!audioCtx || bgm.timer) return;
+  try {
+    bgm.master = audioCtx.createGain();
+    bgm.master.gain.value = muted ? 0 : 0.0001;
+    const tone = audioCtx.createBiquadFilter();
+    tone.type = 'highshelf'; tone.frequency.value = 9000; tone.gain.value = -2;
+    bgm.master.connect(tone); tone.connect(audioCtx.destination);
+
+    // 简易反馈延迟（电影感空间）
+    const delay = audioCtx.createDelay(1.0);
+    delay.delayTime.value = 0.28;
+    const fb = audioCtx.createGain(); fb.gain.value = 0.28;
+    const dampen = audioCtx.createBiquadFilter();
+    dampen.type = 'lowpass'; dampen.frequency.value = 2800;
+    bgm.delaySend = audioCtx.createGain(); bgm.delaySend.gain.value = 0.35;
+    bgm.delaySend.connect(delay);
+    delay.connect(dampen);
+    dampen.connect(fb);
+    fb.connect(delay);
+    dampen.connect(tone);
+
+    bgm.timer = setInterval(bgmTick, 25);
+  } catch (err) {}
+}
+
+function bgmTick() {
+  if (!audioCtx || bgm.mode === 'off' || !BGM_TRACKS[bgm.mode]) return;
+  if (document.hidden) return;
+  const track = BGM_TRACKS[bgm.mode];
+  const spb = 60 / track.bpm;
+  const stepDur = spb / 4; // 16th
+  const schedule = bgmMakeSchedule();
+  const horizon = audioCtx.currentTime + 0.12;
+  bgm.intensity = bgmComputeIntensity();
+  if (bgm.nextTime < audioCtx.currentTime - 0.2) bgm.nextTime = audioCtx.currentTime + 0.03;
+  while (bgm.nextTime < horizon) {
+    track.voices(bgm.nextTime, bgm.step, schedule, bgm);
+    bgm.nextTime += stepDur;
+    bgm.step = (bgm.step + 1) % track.steps;
+    if (bgm.step === 0) bgm.phrase = (bgm.phrase + 1) | 0;
+  }
+}
+
+/** 切换 BGM 曲目。mode: 'off'|'menu'|'battle'|'boss' */
+function bgmSet(mode) {
+  if (bgm.mode === mode) return;
+  bgm.mode = mode;
+  bgm.step = 0;
+  bgm.phrase = 0;
+  if (!audioCtx) return;
+  bgm.nextTime = audioCtx.currentTime + 0.05;
+  if (mode === 'off') {
+    bgm.master.gain.setTargetAtTime(0.0001, audioCtx.currentTime, 0.15);
+  } else {
+    bgmApplyMute();
+  }
+}
+
+/** 暂停时压低 BGM，恢复后拉回 */
+function bgmSetDuck(duck) {
+  if (!audioCtx || !bgm.master) return;
+  bgm.master.gain.setTargetAtTime(bgmTargetVolume(), audioCtx.currentTime, 0.12);
+}
 
 /* ==================== 星空背景 ==================== */
 const stars = [];
@@ -508,11 +1068,12 @@ function hurtPlayer() {
     p.dead = true;
     spawnExplosion(p.x, p.y, '#ff8d6b', 70, 2.2);
     shake = 20; flash = 0.8;
-    state = 'gameover';
-    lastScoreRank = addScoreEntry(score, wave);
-    submitScoreToCloud();
-    if (score > highScore) { highScore = score; try { localStorage.setItem('starwarship_high', String(highScore)); } catch (err) {} }
-    sfx.gameover();
+      state = 'gameover';
+      lastScoreRank = addScoreEntry(score, wave);
+      submitScoreToCloud();
+      if (score > highScore) { highScore = score; try { localStorage.setItem('starwarship_high', String(highScore)); } catch (err) {} }
+      sfx.gameover();
+      bgmSet('off');
   }
 }
 
@@ -707,7 +1268,8 @@ function damageEnemy(e, dmg) {
     addFloater(e.x, e.y, '+' + e.score, '#ffd76a');
     spawnExplosion(e.x, e.y, e.color, e.type === 'boss' ? 60 : (e.type === 'battleship' ? 40 : 22), e.type === 'boss' ? 2 : 1);
     sfx.boom(e.type === 'boss' || e.type === 'battleship');
-    if (e.type === 'boss') shake = 18; else shake = Math.max(shake, 5);
+    if (e.type === 'boss') { shake = 18; bgmSet('battle'); }
+    else shake = Math.max(shake, 5);
     if (Math.random() < 0.16) dropPowerup(e.x, e.y);
   } else {
     sfx.hit();
@@ -868,6 +1430,7 @@ function startGame() {
   lastTimeRank = -1;
   winTimeSec = 0;
   state = 'playing';
+  bgmSet('battle');
   nextWave();
 }
 function nextWave() {
@@ -892,6 +1455,8 @@ function nextWave() {
   waveBanner = 2.2;
   waveBannerText = isBossWave ? '警告！第 ' + n + ' 波 · 星际母舰来袭！' : '第 ' + n + ' 波';
   sfx.wave();
+  if (isBossWave) bgmSet('boss');
+  else bgmSet('battle');
 }
 function updateWaves(dt) {
   spawnTimer -= dt;
@@ -917,6 +1482,7 @@ function updateWaves(dt) {
         spawnExplosion(rand(0, W), rand(60, H * 0.5), ['#ffd76a', '#ffe9a8', '#ffb347', '#7ef0ff'][randInt(0, 3)], 6, 1.2);
       }
       sfx.win();
+      bgmSet('off');
       return;
     }
     waitingNext = true;
