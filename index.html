@@ -79,6 +79,7 @@ const distSq = (ax, ay, bx, by) => { const dx = ax - bx, dy = ay - by; return dx
 const keys = {};
 const mouse = { x: W / 2, y: H * 0.7, down: false, rdown: false };
 let lastMouseMove = -10;
+let mouseBlockedUntil = -10;   // 键盘方向键按下后屏蔽鼠标跟随的截止时间（与 time 同基准）
 
 function toLogical(e) {
   const r = canvas.getBoundingClientRect();
@@ -92,6 +93,7 @@ window.addEventListener('keydown', (e) => {
   }
   if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) e.preventDefault();
   keys[e.code] = true;
+  if (['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) mouseBlockedUntil = time + 2.5;   // 按方向键时暂屏蔽鼠标跟随
   if (e.code === 'Enter') {
     if (state === 'menu' || state === 'gameover') startGame();
     else if (state === 'win') { state = 'playing'; nextWave(); }
@@ -1105,7 +1107,7 @@ function updatePlayer(dt) {
   if (keys['ArrowUp'] || keys['KeyW']) dy -= 1;
   if (keys['ArrowDown'] || keys['KeyS']) dy += 1;
   if (isTouch) { dx += joyVec.x; dy += joyVec.y; }
-  const useMouse = (!isTouch) && ((time - lastMouseMove < 2.5) || mouse.down || mouse.rdown);
+  const useMouse = (!isTouch) && (time >= mouseBlockedUntil) && ((time - lastMouseMove < 2.5) || mouse.down || mouse.rdown);
   if (useMouse) {
     p.x += (mouse.x - p.x) * Math.min(1, dt * 30);
     p.y += (mouse.y - p.y) * Math.min(1, dt * 30);
