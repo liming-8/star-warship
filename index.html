@@ -1504,6 +1504,7 @@ function startGame() {
   cleared = false;
   lastScoreRank = -1;
   lastTimeRank = -1;
+  lastGlobalScoreRank = -1;
   winTimeSec = 0;
   state = 'playing';
   bgmSet('battle');
@@ -1601,8 +1602,12 @@ function checkCollisions() {
   for (const e of enemies) {
     if (e.dead) continue;
     if (distSq(e.x, e.y, player.x, player.y) < (e.r + player.r * 0.8) ** 2) {
-      damageEnemy(e, 999);
-      hurtPlayer();
+      if (e.type === 'boss') {
+        hurtPlayer();          // 撞星际母舰（Boss）：我方扣血，但不能直接撞毁 Boss
+      } else {
+        damageEnemy(e, 999);   // 撞普通敌机：同归于尽，我方也扣血
+        hurtPlayer();
+      }
     }
   }
 }
@@ -1696,29 +1701,41 @@ async function apiRenameNickname(oldName, newName) {
   } catch (err) { return { ok: false, reason: 'offline' }; }
 }
 async function apiSubmitScore(nickname, scr, wv, clearTime) {
-  if (!CLOUD_ENABLED || !nickname) return false;
+  if (!CLOUD_ENABLED || !nickname) return -1;
   try {
     const res = await supabaseFetch('players?nickname=eq.' + encodeURIComponent(nickname) + '&select=nickname,score,wave,clear_time');
-    if (!res.ok) return false;
+    if (!res.ok) return -1;
     const rows = await res.json();
+    let finalScore = scr;
     if (rows.length === 0) {
       await supabaseFetch('players', {
         method: 'POST',
         body: JSON.stringify({ nickname: nickname, score: scr, wave: wv, clear_time: clearTime || 0 }),
       });
-      return true;
+      finalScore = scr;
+    } else {
+      const cur = rows[0];
+      if (scr <= cur.score) {
+        finalScore = cur.score;
+      } else {
+        const upd = { score: scr, wave: wv };
+        if (clearTime > 0 && (cur.clear_time === 0 || clearTime < cur.clear_time)) upd.clear_time = clearTime;
+        await supabaseFetch('players?nickname=eq.' + encodeURIComponent(nickname), { method: 'PATCH', body: JSON.stringify(upd) });
+        finalScore = scr;
+      }
     }
-    const cur = rows[0];
-    if (scr <= cur.score) return true;
-    const upd = { score: scr, wave: wv };
-    if (clearTime > 0 && (cur.clear_time === 0 || clearTime < cur.clear_time)) upd.clear_time = clearTime;
-    await supabaseFetch('players?nickname=eq.' + encodeURIComponent(nickname), { method: 'PATCH', body: JSON.stringify(upd) });
-    return true;
-  } catch (err) { return false; }
+    // 查询全体名次：全体榜中分数高于本次分数的人数 + 1
+    const r2 = await supabaseFetch('players?select=nickname&score=gt.' + finalScore);
+    if (!r2.ok) return -1;
+    const rows2 = await r2.json();
+    return (Array.isArray(rows2) ? rows2.length : 0) + 1;
+  } catch (err) { return -1; }
 }
 function submitScoreToCloud() {
   if (!CLOUD_ENABLED || !playerName) return;
-  apiSubmitScore(playerName, score, wave, winTimeSec).catch(function () {});
+  apiSubmitScore(playerName, score, wave, winTimeSec).then(function (rank) {
+    if (rank >= 0) lastGlobalScoreRank = rank;
+  }).catch(function () {});
 }
 let globalState = 'idle';      // idle | loading | ok | offline | disabled
 let globalRows = [];
@@ -1932,9 +1949,11 @@ function drawGameOver() {
   ctx.fillStyle = '#9ad7ff';
   ctx.fillText('抵达波次：第 ' + wave + ' 波', W / 2, H / 2 + 20);
   ctx.fillStyle = '#ffd76a';
-  if (lastScoreRank >= 0) ctx.fillText('分数排名：第 ' + (lastScoreRank + 1) + ' 名', W / 2, H / 2 + 55);
+  if (lastScoreRank >= 0) ctx.fillText('个人分数排名：第 ' + (lastScoreRank + 1) + ' 名', W / 2, H / 2 + 55);
+  ctx.fillStyle = '#7ef0ff';
+  if (lastGlobalScoreRank >= 0) ctx.fillText('全体分数排名：第 ' + lastGlobalScoreRank + ' 名', W / 2, H / 2 + 85);
   ctx.fillStyle = '#8fb6d9';
-  ctx.fillText('最高分：' + highScore, W / 2, H / 2 + 85);
+  ctx.fillText('最高分：' + highScore, W / 2, H / 2 + 115);
   if (Math.sin(time * 3) > -0.3) {
     ctx.font = 'bold 30px "Microsoft YaHei"';
     ctx.fillStyle = '#7ef0ff';
@@ -2184,6 +2203,7 @@ let startTime = Date.now();
 let cleared = false;
 let lastScoreRank = -1;
 let lastTimeRank = -1;
+let lastGlobalScoreRank = -1;   // 本次成绩在全体榜上的名次（1-based，云端异步返回）
 let winTimeSec = 0;
 let prevState = 'menu';
 let prevPaused = false;
