@@ -1122,7 +1122,7 @@ function updatePlayer(dt) {
   if (Math.random() < 0.7 * PFX) spawnTrail(p.x, p.y + 16, 'rgba(80,180,255,0.8)', 2.2);
 
   if ((keys['Space'] || mouse.down || touchFire) && p.fireCd <= 0) {
-    p.fireCd = [0.18, 0.16, 0.14, 0.12][p.weaponLevel - 1];
+    p.fireCd = [0.18, 0.16, 0.14, 0.12, 0.115, 0.11, 0.105, 0.10][p.weaponLevel - 1];
     fireBullets();
   }
 }
@@ -1159,13 +1159,20 @@ const BULLET_SPEED = 720, MISSILE_SPEED = 400;
 
 function fireBullets() {
   const lvl = player.weaponLevel;
-  let shots;
-  if (lvl === 1) shots = [0];
-  else if (lvl === 2) shots = [-9, 9];
-  else if (lvl === 3) shots = [0, -13, 13];
-  else shots = [-7, 7, -16, 16];
-  for (const ox of shots) {
-    pBullets.push({ x: player.x + ox, y: player.y - 20, vx: 0, vy: -BULLET_SPEED, r: 4, dmg: 1 });
+  // 射击角度（度）：0=正上方，负=偏左，正=偏右
+  let angles;
+  if (lvl <= 1) angles = [0];
+  else if (lvl === 2) angles = [-6, 6];
+  else if (lvl === 3) angles = [0, -9, 9];
+  else if (lvl === 4) angles = [-5, 5, -12, 12];
+  else if (lvl === 5) angles = [0, -10, 10, -22, 22];
+  else if (lvl === 6) angles = [-8, 8, -18, 18, -28, 28];
+  else if (lvl === 7) angles = [0, -12, 12, -24, 24, -38, 38];
+  else angles = [-10, 10, -20, 20, -32, 32, -44, 44];
+  const dmg = (lvl >= 8) ? 2 : 1;   // Lv8 终极武器：双倍伤害
+  for (const deg of angles) {
+    const a = -Math.PI / 2 + deg * Math.PI / 180;
+    pBullets.push({ x: player.x, y: player.y - 20, vx: Math.cos(a) * BULLET_SPEED, vy: Math.sin(a) * BULLET_SPEED, r: 4, dmg: dmg });
   }
   sfx.shoot();
 }
@@ -1234,10 +1241,13 @@ function explodeMissile(idx) {
 }
 function drawBullets() {
   for (const b of pBullets) {
+    const a = Math.atan2(b.vy, b.vx);
+    ctx.save(); ctx.translate(b.x, b.y); ctx.rotate(a);
     ctx.fillStyle = '#aef4ff';
-    ctx.beginPath(); ctx.ellipse(b.x, b.y, 3, 9, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(0, 0, 9, 3, 0, 0, Math.PI * 2); ctx.fill();
     ctx.fillStyle = 'rgba(174,244,255,0.5)';
-    ctx.beginPath(); ctx.ellipse(b.x, b.y - 6, 2, 10, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(-6, 0, 10, 2, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
   }
   for (const b of eBullets) {
     ctx.fillStyle = '#ff7a6b';
@@ -1457,7 +1467,10 @@ function updatePowerups(dt) {
   }
 }
 function applyPowerup(t) {
-  if (t === 'W') { player.weaponLevel = Math.min(4, player.weaponLevel + 1); addFloater(player.x, player.y - 30, '武器升级！', '#7ff'); }
+  if (t === 'W') {
+    if (player.weaponLevel >= 8) { addFloater(player.x, player.y - 30, '武器已满级（Lv8）！', '#7ff'); }
+    else { player.weaponLevel = Math.min(8, player.weaponLevel + 1); addFloater(player.x, player.y - 30, '武器升级！Lv' + player.weaponLevel, '#7ff'); }
+  }
   if (t === 'M') { player.hasMissile = true; player.missileAmmo = Math.min(12, player.missileAmmo + 6); addFloater(player.x, player.y - 30, '导弹 +6', '#ffb347'); }
   if (t === 'S') { player.shield = true; addFloater(player.x, player.y - 30, '护盾！', '#7ef0ff'); }
   if (t === 'H') { player.hp = Math.min(player.maxHp, player.hp + 1); addFloater(player.x, player.y - 30, '生命 +1', '#8dff8d'); }
