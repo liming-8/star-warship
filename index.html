@@ -212,14 +212,14 @@ function touchPointerDown(e) {
   if (state === 'playing') {
     const r = canvas.getBoundingClientRect();
     const gx = (e.clientX - r.left) / r.width * W;
-    const joystickZone = uiUseBars ? (e.clientX < r.left + 10) : (gx < W / 2);
-    const fireZone = uiUseBars ? (e.clientX > r.right - 10) : (gx >= W / 2);
+    const joystickZone = uiUseBars ? (e.clientX <= r.left) : (gx < W / 2);
+    const fireZone = uiUseBars ? (e.clientX >= r.right) : (gx >= W / 2);
     if (joystickZone) {
       if (JOY.id < 0) {
         JOY.active = true; JOY.id = e.pointerId;
         JOY.ox = e.clientX; JOY.oy = e.clientY; JOY.x = e.clientX; JOY.y = e.clientY;
         joyVec = { x: 0, y: 0 };
-        showJoyAt(e.clientX, e.clientY);
+        layoutJoyHome();
       }
     } else if (fireZone) {
       if (touchFireId < 0) touchFireId = e.pointerId;
@@ -235,16 +235,15 @@ function touchPointerMove(e) {
     if (d > JOY_R_PX) { nx = dx / d * JOY_R_PX; ny = dy / d * JOY_R_PX; }
     joyVec = { x: nx / JOY_R_PX, y: ny / JOY_R_PX };
     if (joyKnobEl) {
-      joyKnobEl.style.left = (JOY.ox + nx - JOY_KNOB_PX) + 'px';
-      joyKnobEl.style.top = (JOY.oy + ny - JOY_KNOB_PX) + 'px';
+      joyKnobEl.style.left = (JOY_FIXED.x + nx - JOY_KNOB_PX) + 'px';
+      joyKnobEl.style.top = (JOY_FIXED.y + ny - JOY_KNOB_PX) + 'px';
     }
   }
 }
 function touchPointerUp(e) {
   if (JOY.active && JOY.id === e.pointerId) {
     JOY.active = false; JOY.id = -1; joyVec = { x: 0, y: 0 };
-    if (joyBaseEl) joyBaseEl.style.display = 'none';
-    if (joyKnobEl) joyKnobEl.style.display = 'none';
+    layoutJoyHome();   // 固定摇杆：松手只把摇杆头回中，底座保持可见
   }
   if (touchFireId === e.pointerId) { touchFireId = -1; touchFire = false; }
   if (touchMissileId === e.pointerId) touchMissileId = -1;
@@ -252,18 +251,19 @@ function touchPointerUp(e) {
 window.addEventListener('pointerdown', (e) => { if (e.pointerType === 'touch') touchPointerDown(e); });
 window.addEventListener('pointermove', (e) => { if (e.pointerType === 'touch') touchPointerMove(e); });
 
-function showJoyAt(x, y) {
+const JOY_FIXED = { x: 0, y: 0 };   // 移动端摇杆固定位置（client px），由 layoutMobileUI 计算
+function layoutJoyHome() {          // 底座固定在 JOY_FIXED，摇杆头回到中心
   if (joyBaseEl) {
     joyBaseEl.style.display = 'block';
     joyBaseEl.style.width = joyBaseEl.style.height = (JOY_R_PX * 2) + 'px';
-    joyBaseEl.style.left = (x - JOY_R_PX) + 'px';
-    joyBaseEl.style.top = (y - JOY_R_PX) + 'px';
+    joyBaseEl.style.left = (JOY_FIXED.x - JOY_R_PX) + 'px';
+    joyBaseEl.style.top = (JOY_FIXED.y - JOY_R_PX) + 'px';
   }
   if (joyKnobEl) {
     joyKnobEl.style.display = 'block';
     joyKnobEl.style.width = joyKnobEl.style.height = (JOY_KNOB_PX * 2) + 'px';
-    joyKnobEl.style.left = (x - JOY_KNOB_PX) + 'px';
-    joyKnobEl.style.top = (y - JOY_KNOB_PX) + 'px';
+    joyKnobEl.style.left = (JOY_FIXED.x - JOY_KNOB_PX) + 'px';
+    joyKnobEl.style.top = (JOY_FIXED.y - JOY_KNOB_PX) + 'px';
   }
 }
 
@@ -285,34 +285,50 @@ const joyKnobEl = document.getElementById('joy-knob');
 const btnPauseEl = document.getElementById('btn-pause');
 const btnMissileEl = document.getElementById('btn-missile');
 const btnFireEl = document.getElementById('btn-fire');
+function readSafeInsets() {
+  const s = getComputedStyle(document.documentElement);
+  const g = (n) => parseFloat(s.getPropertyValue('safe-area-inset-' + n)) || 0;
+  return { top: g('top'), right: g('right'), bottom: g('bottom'), left: g('left') };
+}
 function layoutMobileUI() {
   if (!mobileUI) return;
   const r = canvas.getBoundingClientRect();
   const barW = (window.innerWidth - r.width) / 2;
   uiUseBars = barW > 30;
+  const ins = readSafeInsets();           // 刘海 / 灵动岛 / 底部小白条 安全区
   const cxp = window.innerWidth - Math.max(24, barW * 0.5);
   const fs = Math.min(88, Math.max(62, window.innerWidth * 0.09));
   const ms = Math.round(fs * 0.82), ps = Math.round(fs * 0.6);
   if (btnFireEl) {
     btnFireEl.style.width = btnFireEl.style.height = fs + 'px';
-    btnFireEl.style.right = (window.innerWidth - cxp - fs / 2) + 'px';
-    btnFireEl.style.bottom = '8%';
+    btnFireEl.style.right = (window.innerWidth - cxp - fs / 2 + ins.right) + 'px';
+    btnFireEl.style.bottom = 'calc(env(safe-area-inset-bottom, 0px) + 8%)';
   }
   if (btnMissileEl) {
     btnMissileEl.style.width = btnMissileEl.style.height = ms + 'px';
-    btnMissileEl.style.right = (window.innerWidth - cxp - ms / 2) + 'px';
-    btnMissileEl.style.bottom = 'calc(8% + ' + Math.round(fs + 20) + 'px)';
+    btnMissileEl.style.right = (window.innerWidth - cxp - ms / 2 + ins.right) + 'px';
+    btnMissileEl.style.bottom = 'calc(env(safe-area-inset-bottom, 0px) + 8% + ' + Math.round(fs + 20) + 'px)';
   }
   if (btnPauseEl) {
     btnPauseEl.style.width = btnPauseEl.style.height = ps + 'px';
-    btnPauseEl.style.right = (window.innerWidth - cxp - ps / 2) + 'px';
-    btnPauseEl.style.top = '7%';
+    btnPauseEl.style.right = (window.innerWidth - cxp - ps / 2 + ins.right) + 'px';
+    btnPauseEl.style.top = 'calc(env(safe-area-inset-top, 0px) + 7%)';
   }
+  // 移动摇杆固定位置：落在左侧控制区内的舒适拇指位（约屏幕 62% 高度），避开安全区与画布边缘
+  const zoneRight = uiUseBars ? r.left : (r.left + r.width / 2);
+  const jMinX = JOY_R_PX + ins.left + 8;
+  const jPrefX = uiUseBars ? r.left / 2 : (r.left + r.width / 4);
+  const jMaxX = Math.max(jMinX, Math.min(zoneRight - JOY_R_PX - 8, window.innerWidth - JOY_R_PX - ins.right - 8));
+  const jMinY = JOY_R_PX + ins.top + 8;
+  const jMaxY = Math.max(jMinY, window.innerHeight - JOY_R_PX - ins.bottom - 8);
+  JOY_FIXED.x = clamp(jPrefX, jMinX, jMaxX);
+  JOY_FIXED.y = clamp(window.innerHeight * 0.62, jMinY, jMaxY);
+  layoutJoyHome();
 }
 function updateMobileUI() {
   if (!mobileUI) return;
   if (isTouch && state === 'playing') {
-    if (mobileUI.style.display !== 'block') mobileUI.style.display = 'block';
+    if (mobileUI.style.display !== 'block') { mobileUI.style.display = 'block'; layoutJoyHome(); }
     if (btnPauseEl) btnPauseEl.textContent = paused ? '▶' : 'Ⅱ';
   } else {
     mobileUI.style.display = 'none';
