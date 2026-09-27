@@ -1281,7 +1281,14 @@ const enemies = [];
 function spawnEnemy(type, x) {
   const def = ENEMY_DEFS[type];
   let hp = def.hp;
-  if (type === 'boss') hp = 160 + wave * 20;
+  if (type === 'boss') {
+    hp = 160 + wave * 20;                       // Boss 血量随关卡升高（原有）
+  } else {
+    // 普通敌人血量随关卡（波次）升高：第1波不变，越往后越肉
+    // 缩放系数越小=越温和；scout 是杂兵，涨得最慢
+    const HP_SCALE = { scout: 0.10, frigate: 0.18, battleship: 0.22 };
+    hp = Math.round(def.hp * (1 + (wave - 1) * (HP_SCALE[type] || 0.12)));
+  }
   enemies.push({
     type, x: (x === undefined || x === null) ? rand(60, W - 60) : x, y: -def.r - 10,
     r: def.r, hp, maxHp: hp, score: def.score, speed: def.speed,
