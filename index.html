@@ -1682,8 +1682,8 @@ try {
 } catch (err) {}
 function saveBoards() {
   try {
-    localStorage.setItem(SAVE_SCORES, JSON.stringify(scoreBoard.slice(0, 10)));
-    localStorage.setItem(SAVE_TIMES, JSON.stringify(timeBoard.slice(0, 10)));
+    localStorage.setItem(SAVE_SCORES, JSON.stringify(scoreBoard.slice(0, 50)));
+    localStorage.setItem(SAVE_TIMES, JSON.stringify(timeBoard.slice(0, 50)));
   } catch (err) {}
 }
 function fmtTime(sec) {
@@ -1695,7 +1695,7 @@ function addScoreEntry(scr, wv) {
   const e = { score: scr, wave: wv, time: Math.max(1, Math.floor((Date.now() - startTime) / 1000)) };
   scoreBoard.push(e);
   scoreBoard.sort((a, b) => b.score - a.score || a.time - b.time);
-  scoreBoard = scoreBoard.slice(0, 10);
+  scoreBoard = scoreBoard.slice(0, 50);
   saveBoards();
   return scoreBoard.indexOf(e);
 }
@@ -1703,7 +1703,7 @@ function addTimeEntry() {
   const e = { time: Math.max(1, Math.floor((Date.now() - startTime) / 1000)), score, wave };
   timeBoard.push(e);
   timeBoard.sort((a, b) => a.time - b.time || b.score - a.score);
-  timeBoard = timeBoard.slice(0, 10);
+  timeBoard = timeBoard.slice(0, 50);
   saveBoards();
   return timeBoard.indexOf(e);
 }
@@ -1798,7 +1798,7 @@ async function loadGlobalBoard() {
   globalLoading = true;
   globalState = 'loading';
   try {
-    const res = await supabaseFetch('players?order=score.desc&limit=50&select=nickname,score,wave');
+    const res = await supabaseFetch('players?order=score.desc&limit=100&select=nickname,score,wave');
     if (!res.ok) throw new Error('http ' + res.status);
     const rows = await res.json();
     globalRows = (Array.isArray(rows) ? rows : []).filter(function (r) { return (r.score || 0) > 0; });
@@ -2184,7 +2184,7 @@ function drawGlobalBoard() {
   if (myIdx < 0) {
     ctx.font = '13px "Microsoft YaHei"';
     ctx.fillStyle = '#8fb6d9';
-    ctx.fillText('当前不在前 50 名，继续加油！', W / 2, 628);
+    ctx.fillText('当前不在前 100 名，继续加油！', W / 2, 628);
   } else {
     ctx.font = 'bold 15px "Microsoft YaHei"';
     ctx.fillStyle = '#7ef0ff';
