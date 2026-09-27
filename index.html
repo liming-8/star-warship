@@ -35,7 +35,7 @@ canvas:focus { outline: none; }
     <button class="nick-offline" id="nick-offline">离线模式继续</button>
   </div>
 </div>
-<div id="rotate-hint" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;width:100%;height:100%;z-index:98;background:#05060f;color:#9ad7ff;font-family:'Microsoft YaHei',sans-serif;flex-direction:column;align-items:center;justify-content:center;text-align:center;"><div style="font-size:21px;letter-spacing:4px;line-height:1.5;">请将手机旋转至横屏游玩</div><div style="margin-top:22px;font-size:14px;color:#6f94b8;letter-spacing:1px;">横屏后自动进入游戏</div><div style="margin-top:30px;font-size:14px;color:#ffb347;letter-spacing:1px;line-height:1.6;">如在微信 / QQ 中打开无法横屏<br>请点击右上角 ··· → 用浏览器打开此网站</div></div>
+<div id="rotate-hint" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;width:100%;height:100%;z-index:98;background:#05060f;color:#9ad7ff;font-family:'Microsoft YaHei',sans-serif;flex-direction:column;align-items:center;justify-content:center;text-align:center;"><div style="font-size:21px;letter-spacing:4px;line-height:1.5;">请将手机旋转至横屏游玩</div><div style="margin-top:22px;font-size:14px;color:#6f94b8;letter-spacing:1px;">横屏后自动进入游戏</div><button id="btn-autorotate" style="display:none;margin-top:28px;padding:12px 32px;font-size:16px;background:#1f6feb;color:#fff;border:none;border-radius:8px;letter-spacing:2px;font-family:'Microsoft YaHei',sans-serif;">点击自动横屏</button><div id="rotate-tip" style="display:none;margin-top:16px;font-size:13px;color:#ffb08a;line-height:1.6;padding:0 24px;"></div><div style="margin-top:30px;font-size:14px;color:#ffb347;letter-spacing:1px;line-height:1.6;">如在微信 / QQ 中打开无法横屏<br>请点击右上角 ··· → 用浏览器打开此网站</div></div>
 <div id="mobile-ui" style="display:none;position:fixed;left:0;top:0;width:100%;height:100%;z-index:60;pointer-events:none;touch-action:none;"><div id="joy-base" style="display:none;position:absolute;border-radius:50%;border:2px solid rgba(127,212,255,0.45);background:rgba(127,212,255,0.15);"></div><div id="joy-knob" style="display:none;position:absolute;border-radius:50%;background:rgba(127,212,255,0.6);"></div><div id="btn-pause" style="position:absolute;border-radius:50%;background:rgba(24,40,80,0.72);border:1.5px solid #7fd4ff;color:#eaf7ff;font-family:'Microsoft YaHei',sans-serif;display:flex;align-items:center;justify-content:center;font-weight:bold;font-size:20px;pointer-events:auto;touch-action:none;user-select:none;-webkit-user-select:none;">Ⅱ</div><div id="btn-missile" style="position:absolute;border-radius:50%;background:rgba(24,40,80,0.72);border:1.5px solid #ffb347;color:#eaf7ff;font-family:'Microsoft YaHei',sans-serif;display:flex;align-items:center;justify-content:center;font-weight:bold;font-size:14px;pointer-events:auto;touch-action:none;user-select:none;-webkit-user-select:none;">导弹</div><div id="btn-fire" style="position:absolute;border-radius:50%;background:rgba(24,40,80,0.72);border:1.5px solid #7ef0ff;color:#eaf7ff;font-family:'Microsoft YaHei',sans-serif;display:flex;align-items:center;justify-content:center;font-weight:bold;font-size:14px;pointer-events:auto;touch-action:none;user-select:none;-webkit-user-select:none;">射击</div></div>
 <script src="config.js"></script>
 <script>
@@ -360,12 +360,42 @@ function initMobileUI() {
 }
 initMobileUI();
 const rotateHint = document.getElementById('rotate-hint');
+const btnAutoRotate = document.getElementById('btn-autorotate');
+const rotateTip = document.getElementById('rotate-tip');
 function updateRotateHint() {
   const show = isTouch && window.innerHeight > window.innerWidth;
   if (rotateHint) rotateHint.style.display = show ? 'flex' : 'none';
 }
+/* 自动横屏（渐进增强）：
+ * - Android Chrome / Edge / Firefox(144+) / 三星 / WebView：支持 screen.orientation.lock，可用
+ * - iOS Safari：完全不支持 lock()，按钮不显示，静默降级为"请手动旋转"文字提示
+ * - 其它失败（系统锁定了自动旋转 / 非 HTTPS / 非用户手势）：捕获异常后给出文字引导 */
+const canLockLandscape = !!(screen.orientation && typeof screen.orientation.lock === 'function');
+if (btnAutoRotate && canLockLandscape) {
+  btnAutoRotate.style.display = 'inline-block';
+  btnAutoRotate.addEventListener('click', async () => {
+    if (rotateTip) { rotateTip.style.display = 'none'; rotateTip.textContent = ''; }
+    try {   // 先尝试进入全屏（方向锁定通常要求全屏上下文）
+      const el = document.documentElement;
+      if (el.requestFullscreen) await el.requestFullscreen().catch(() => {});
+      else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
+    } catch (err) {}
+    try {   // 必须在用户手势的回调链中调用
+      await screen.orientation.lock('landscape');
+    } catch (err) {
+      if (rotateTip) {
+        rotateTip.style.display = 'block';
+        rotateTip.textContent = '无法自动旋转：请确认系统已开启“自动旋转”，然后重试；也可以直接手动把手机转为横屏。';
+      }
+    }
+  });
+}
 window.addEventListener('resize', updateRotateHint);
 window.addEventListener('orientationchange', updateRotateHint);
+document.addEventListener('fullscreenchange', () => {
+  if (typeof layoutMobileUI === 'function') layoutMobileUI();
+  updateRotateHint();
+});
 updateRotateHint();
 
 /* ==================== 音频 ==================== */
